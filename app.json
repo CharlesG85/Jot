@@ -34,7 +34,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Jot needs microphone access to record your musical ideas."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

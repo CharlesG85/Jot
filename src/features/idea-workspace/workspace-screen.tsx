@@ -1,15 +1,19 @@
 import { Stack } from 'expo-router';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { EditableHeaderTitle } from '@/features/idea-workspace/editable-header-title';
+import { LayerCard } from '@/features/idea-workspace/layer-card';
 import { LyricsEditor } from '@/features/idea-workspace/lyrics-editor';
 import { RecordButton } from '@/features/idea-workspace/record-button';
 import { SettingsButton } from '@/features/idea-workspace/settings-button';
+import { useLayerRecorder } from '@/features/idea-workspace/use-layer-recorder';
 import { useIdeasStore } from '@/features/ideas/store';
+import type { Layer } from '@/models/layer';
+import { storageService } from '@/services/sqlite-storage-service';
 
 interface WorkspaceScreenProps {
   ideaId: string;
@@ -18,12 +22,21 @@ interface WorkspaceScreenProps {
 export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
   const { ideas, isLoaded, loadIdeas } = useIdeasStore();
   const idea = ideas.find((candidate) => candidate.id === ideaId);
+  const [layers, setLayers] = useState<Layer[]>([]);
 
   useEffect(() => {
     if (!isLoaded) {
       loadIdeas();
     }
   }, [isLoaded, loadIdeas]);
+
+  useEffect(() => {
+    storageService.listLayers(ideaId).then(setLayers);
+  }, [ideaId]);
+
+  const recorder = useLayerRecorder(ideaId, (layer) => {
+    setLayers((prev) => [...prev, layer]);
+  });
 
   if (!idea) {
     return (
@@ -52,16 +65,24 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
           <ThemedText style={styles.sectionLabel} themeColor="textSecondary">
             Layers
           </ThemedText>
-          <ThemedView type="backgroundElement" style={styles.layerEmptyState}>
-            <ThemedText style={styles.layerEmptyTitle}>No Layers Yet</ThemedText>
-            <ThemedText style={styles.layerEmptySubtitle} themeColor="textSecondary">
-              Layers you record will appear here.
-            </ThemedText>
-          </ThemedView>
+          {layers.length === 0 ? (
+            <ThemedView type="backgroundElement" style={styles.layerEmptyState}>
+              <ThemedText style={styles.layerEmptyTitle}>No Layers Yet</ThemedText>
+              <ThemedText style={styles.layerEmptySubtitle} themeColor="textSecondary">
+                Layers you record will appear here.
+              </ThemedText>
+            </ThemedView>
+          ) : (
+            layers.map((layer) => <LayerCard key={layer.id} layer={layer} />)
+          )}
         </ThemedView>
       </ScrollView>
 
-      <RecordButton />
+      <RecordButton
+        phase={recorder.phase}
+        durationMillis={recorder.durationMillis}
+        onPress={recorder.phase === 'recording' ? recorder.stop : recorder.start}
+      />
     </ThemedView>
   );
 }

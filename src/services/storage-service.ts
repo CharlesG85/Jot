@@ -15,6 +15,8 @@ export interface StorageService {
   updateIdea(id: string, changes: Partial<Omit<Idea, 'id' | 'createdAt'>>): Promise<Idea>;
   /** Renames only. Does not bump `updatedAt` — a title change alone shouldn't reorder the list. */
   renameIdea(id: string, title: string): Promise<Idea>;
+  /** Bumps `updatedAt` without changing any fields — for edits that happen through a Layer, not the Idea row itself. */
+  touchIdea(id: string): Promise<void>;
   deleteIdea(id: string): Promise<void>;
 
   listLayers(ideaId: string): Promise<Layer[]>;

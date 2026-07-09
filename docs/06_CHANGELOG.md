@@ -28,6 +28,17 @@ Do not record work in progress.
 
 ---
 
+# [0.5.0] - 2026-07-09
+
+### Added
+
+* Record audio into a new Layer from the Idea Workspace.
+* Layer playback.
+* Microphone permission handling.
+* Recording and processing indicators on the Record button.
+
+---
+
 # [0.4.0] - 2026-07-09
 
 ### Added

@@ -140,6 +140,11 @@ class SqliteStorageService implements StorageService {
     return { ...existing, title };
   }
 
+  async touchIdea(id: string): Promise<void> {
+    const db = await getDatabase();
+    await db.runAsync('UPDATE ideas SET updated_at = ? WHERE id = ?', Date.now(), id);
+  }
+
   async deleteIdea(id: string): Promise<void> {
     const db = await getDatabase();
     await db.runAsync('DELETE FROM ideas WHERE id = ?', id);
