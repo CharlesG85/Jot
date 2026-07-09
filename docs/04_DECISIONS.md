@@ -76,6 +76,15 @@ Only record decisions that are intended to persist long-term.
 
 ---
 
+## 2026-07-09
+
+### Product
+
+* The "Search" Backlog item is partially promoted to Roadmap Stage 1: searching Ideas by title is now in scope.
+* Searching by lyrics and tags remains in the Backlog until the Lyrics editor (Stage 2) and Tags (unbuilt Backlog item) exist.
+
+---
+
 # Decision Rules
 
 When making future architectural decisions:

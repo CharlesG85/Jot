@@ -14,6 +14,8 @@ export const Colors = {
     backgroundElement: '#F0F0F3',
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
+    accent: '#6C5CE7',
+    accentSecondary: '#00B8D9',
   },
   dark: {
     text: '#ffffff',
@@ -21,6 +23,8 @@ export const Colors = {
     backgroundElement: '#212225',
     backgroundSelected: '#2E3135',
     textSecondary: '#B0B4BA',
+    accent: '#8A7CFF',
+    accentSecondary: '#22D3EE',
   },
 } as const;
 
@@ -61,5 +65,21 @@ export const Spacing = {
   six: 64,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+/** iOS-standard type scale. Values are fontSize/lineHeight in points. */
+export const Typography = {
+  largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: '700' },
+  title: { fontSize: 28, lineHeight: 34, fontWeight: '700' },
+  headline: { fontSize: 17, lineHeight: 22, fontWeight: '600' },
+  body: { fontSize: 17, lineHeight: 22, fontWeight: '400' },
+  subhead: { fontSize: 15, lineHeight: 20, fontWeight: '400' },
+  footnote: { fontSize: 13, lineHeight: 18, fontWeight: '400' },
+  caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
+} as const;
+
+/** Corner-radius tokens for the rounded cards called for throughout docs/01_UI_SPEC.md. */
+export const Radius = {
+  small: 8,
+  medium: 12,
+  large: 20,
+  pill: 999,
+} as const;

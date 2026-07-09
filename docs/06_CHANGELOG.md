@@ -28,6 +28,48 @@ Do not record work in progress.
 
 ---
 
+# [0.4.0] - 2026-07-09
+
+### Added
+
+* Idea Settings sheet (tempo, time signature, loop length), opened from the Workspace's gear icon.
+
+---
+
+# [0.3.0] - 2026-07-09
+
+### Added
+
+* Idea Workspace screen, opened by tapping an Idea.
+* Editable Idea title from the Workspace.
+* Lyrics editor with autosave.
+
+### Changed
+
+* Tapping an Idea card now opens its Workspace; tapping its title still renames it inline.
+
+---
+
+# [0.2.0] - 2026-07-09
+
+### Added
+
+* Search Ideas by title.
+
+---
+
+# [0.1.0] - 2026-07-09
+
+### Added
+
+* Notes-style Idea list.
+* Create Idea.
+* Rename Idea.
+* Delete Idea.
+* Persistent local storage.
+
+---
+
 # Version Template
 
 ## [Version Number] - YYYY-MM-DD

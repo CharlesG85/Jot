@@ -50,6 +50,7 @@ Create the notebook experience.
 * Delete Idea
 * Persist Ideas locally
 * Sort by modified date
+* Search Ideas by title (promoted from Backlog on 2026-07-09; lyrics/tag search remain backlog items until those features exist)
 
 ### Deliverable
 

@@ -111,9 +111,10 @@ Medium
 
 ## Search
 
-Search by:
+Search by title promoted to the Roadmap (Stage 1, 2026-07-09).
 
-* Title
+Remaining:
+
 * Lyrics
 * Tags
 
