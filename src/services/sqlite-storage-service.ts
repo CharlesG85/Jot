@@ -34,6 +34,7 @@ interface LayerRow {
   volume: number;
   audio_path: string | null;
   midi_data: string | null;
+  position: number;
   created_at: number;
   updated_at: number;
 }
@@ -62,6 +63,7 @@ function mapLayer(row: LayerRow): Layer {
     volume: row.volume,
     audioPath: row.audio_path,
     midiData: row.midi_data,
+    position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -153,7 +155,7 @@ class SqliteStorageService implements StorageService {
   async listLayers(ideaId: string): Promise<Layer[]> {
     const db = await getDatabase();
     const rows = await db.getAllAsync<LayerRow>(
-      'SELECT * FROM layers WHERE idea_id = ? ORDER BY created_at ASC',
+      'SELECT * FROM layers WHERE idea_id = ? ORDER BY position ASC',
       ideaId,
     );
     return rows.map(mapLayer);
@@ -162,6 +164,10 @@ class SqliteStorageService implements StorageService {
   async createLayer(ideaId: string, input: Pick<Layer, 'name'>): Promise<Layer> {
     const db = await getDatabase();
     const now = Date.now();
+    const nextPosition = await db.getFirstAsync<{ nextPosition: number }>(
+      'SELECT COALESCE(MAX(position), -1) + 1 AS nextPosition FROM layers WHERE idea_id = ?',
+      ideaId,
+    );
     const layer: Layer = {
       id: generateId(),
       ideaId,
@@ -172,12 +178,13 @@ class SqliteStorageService implements StorageService {
       volume: 1,
       audioPath: null,
       midiData: null,
+      position: nextPosition?.nextPosition ?? 0,
       createdAt: now,
       updatedAt: now,
     };
     await db.runAsync(
-      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, midi_data, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, midi_data, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       layer.id,
       layer.ideaId,
       layer.name,
@@ -187,6 +194,7 @@ class SqliteStorageService implements StorageService {
       layer.volume,
       layer.audioPath,
       layer.midiData,
+      layer.position,
       layer.createdAt,
       layer.updatedAt,
     );
@@ -205,7 +213,7 @@ class SqliteStorageService implements StorageService {
     const updated: Layer = { ...mapLayer(existing), ...changes, updatedAt: Date.now() };
     await db.runAsync(
       `UPDATE layers
-       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, midi_data = ?, updated_at = ?
+       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, midi_data = ?, position = ?, updated_at = ?
        WHERE id = ?`,
       updated.name,
       updated.instrument,
@@ -214,10 +222,23 @@ class SqliteStorageService implements StorageService {
       updated.volume,
       updated.audioPath,
       updated.midiData,
+      updated.position,
       updated.updatedAt,
       id,
     );
     return updated;
+  }
+
+  async reorderLayers(ideaId: string, orderedLayerIds: string[]): Promise<void> {
+    const db = await getDatabase();
+    for (const [index, id] of orderedLayerIds.entries()) {
+      await db.runAsync(
+        'UPDATE layers SET position = ? WHERE id = ? AND idea_id = ?',
+        index,
+        id,
+        ideaId,
+      );
+    }
   }
 
   async deleteLayer(id: string): Promise<void> {

@@ -19,6 +19,17 @@ import { formatDuration } from '@/utils/format-duration';
 const BUTTON_SIZE = 76;
 const RECORD_RED = '#FF3B30';
 
+/** Space the timer label + gap take up above the button while recording. */
+const TIMER_ALLOWANCE = Typography.footnote.lineHeight + Spacing.two;
+
+/**
+ * How much clearance scrollable content needs above the safe-area bottom
+ * inset to avoid sitting underneath this button (idle or recording state,
+ * plus a little breathing room) — see workspace-screen.tsx.
+ */
+export const RECORD_BUTTON_RESERVED_HEIGHT =
+  BUTTON_SIZE + Spacing.four + TIMER_ALLOWANCE + Spacing.three;
+
 interface RecordButtonProps {
   phase: RecordingPhase;
   durationMillis: number;

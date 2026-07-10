@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS layers (
   volume REAL NOT NULL DEFAULT 1,
   audio_path TEXT,
   midi_data TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -46,8 +47,37 @@ export function getDatabase(): Promise<SQLiteDatabase> {
   if (!databasePromise) {
     databasePromise = openDatabaseAsync(DATABASE_NAME).then(async (db) => {
       await db.execAsync(MIGRATION_SQL);
+      await migrateLayerPositionColumn(db);
       return db;
     });
   }
   return databasePromise;
+}
+
+/**
+ * `CREATE TABLE IF NOT EXISTS` is a no-op against a `layers` table that
+ * already existed before `position` was added, so installs from before
+ * Stage 5 need an explicit ALTER TABLE + backfill in creation order.
+ */
+async function migrateLayerPositionColumn(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(layers)');
+  const hasPosition = columns.some((column) => column.name === 'position');
+  if (hasPosition) {
+    return;
+  }
+
+  await db.execAsync(`
+    ALTER TABLE layers ADD COLUMN position INTEGER NOT NULL DEFAULT 0;
+
+    UPDATE layers
+    SET position = (
+      SELECT COUNT(*) - 1
+      FROM layers AS other
+      WHERE other.idea_id = layers.idea_id
+        AND (
+          other.created_at < layers.created_at
+          OR (other.created_at = layers.created_at AND other.id <= layers.id)
+        )
+    );
+  `);
 }

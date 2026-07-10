@@ -40,7 +40,8 @@
         {
           "microphonePermission": "Jot needs microphone access to record your musical ideas."
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

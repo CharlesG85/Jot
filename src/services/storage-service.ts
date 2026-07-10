@@ -25,6 +25,8 @@ export interface StorageService {
     id: string,
     changes: Partial<Omit<Layer, 'id' | 'ideaId' | 'createdAt'>>,
   ): Promise<Layer>;
+  /** Assigns sequential positions matching the given order. */
+  reorderLayers(ideaId: string, orderedLayerIds: string[]): Promise<void>;
   deleteLayer(id: string): Promise<void>;
 
   /** Persists raw recording bytes for a Layer and returns the saved file's local path. */

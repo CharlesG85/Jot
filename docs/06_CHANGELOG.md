@@ -28,6 +28,16 @@ Do not record work in progress.
 
 ---
 
+# [0.6.0] - 2026-07-09
+
+### Added
+
+* Rename, mute, and solo a Layer.
+* Delete or export a Layer via swipe actions.
+* Reorder Layers in an edit mode with animated drag handles.
+
+---
+
 # [0.5.0] - 2026-07-09
 
 ### Added

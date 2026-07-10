@@ -15,6 +15,8 @@ export interface Layer {
   audioPath: string | null;
   /** Reserved for the future MIDI pipeline (docs/03_ROADMAP.md Stage 8). */
   midiData: string | null;
+  /** 0-based order within the parent Idea's Layer stack. */
+  position: number;
   createdAt: number;
   updatedAt: number;
 }
