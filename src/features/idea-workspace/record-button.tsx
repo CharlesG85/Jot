@@ -6,6 +6,7 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
+  withSequence,
   withTiming,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,7 +17,7 @@ import { useTheme } from '@/hooks/use-theme';
 import type { RecordingPhase } from '@/services/audio-service';
 import { formatDuration } from '@/utils/format-duration';
 
-const BUTTON_SIZE = 76;
+export const BUTTON_SIZE = 76;
 const RECORD_RED = '#FF3B30';
 
 /** Space the timer label + gap take up above the button while recording. */
@@ -33,10 +34,20 @@ export const RECORD_BUTTON_RESERVED_HEIGHT =
 interface RecordButtonProps {
   phase: RecordingPhase;
   durationMillis: number;
+  /** 1-4 while phase is 'counting-in', otherwise null. */
+  countInBeat: number | null;
   onPress: () => void;
+  /** Disables the button for reasons outside its own state — e.g. Idea playback is active. */
+  disabled?: boolean;
 }
 
-export function RecordButton({ phase, durationMillis, onPress }: RecordButtonProps) {
+export function RecordButton({
+  phase,
+  durationMillis,
+  countInBeat,
+  onPress,
+  disabled,
+}: RecordButtonProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const pulse = useSharedValue(1);
@@ -48,10 +59,27 @@ export function RecordButton({ phase, durationMillis, onPress }: RecordButtonPro
         -1,
         true,
       );
-    } else {
+    } else if (phase !== 'counting-in') {
       pulse.value = withTiming(1, { duration: 200 });
     }
   }, [phase, pulse]);
+
+  // Counting-in has its own beat-synced feedback: a quick "bump" each time
+  // the beat number changes, instead of the continuous recording pulse.
+  // Reanimated SharedValues are mutable-by-design UI-thread containers, not
+  // real React state — mutating `pulse.value` from a second effect that also
+  // lists it as a dependency isn't the cross-effect state mutation this rule
+  // means to catch.
+  /* eslint-disable react-hooks/immutability */
+  useEffect(() => {
+    if (phase === 'counting-in' && countInBeat !== null) {
+      pulse.value = withSequence(
+        withTiming(1.25, { duration: 80 }),
+        withTiming(1, { duration: 150 }),
+      );
+    }
+  }, [phase, countInBeat, pulse]);
+  /* eslint-enable react-hooks/immutability */
 
   const pulseStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pulse.value }],
@@ -63,7 +91,9 @@ export function RecordButton({ phase, durationMillis, onPress }: RecordButtonPro
       ? 'Stop recording'
       : phase === 'processing'
         ? 'Saving recording'
-        : 'Record';
+        : phase === 'counting-in'
+          ? 'Cancel count-in'
+          : 'Record';
 
   return (
     <View
@@ -73,12 +103,15 @@ export function RecordButton({ phase, durationMillis, onPress }: RecordButtonPro
       {phase === 'recording' && (
         <ThemedText style={styles.timer}>{formatDuration(durationMillis)}</ThemedText>
       )}
+      {phase === 'counting-in' && countInBeat !== null && (
+        <ThemedText style={styles.timer}>{countInBeat}</ThemedText>
+      )}
       <Animated.View style={pulseStyle}>
         <Pressable
           accessibilityLabel={label}
           onPress={onPress}
-          disabled={phase === 'processing'}
-          style={[styles.button, { backgroundColor }]}
+          disabled={phase === 'processing' || disabled}
+          style={[styles.button, { backgroundColor, opacity: disabled ? 0.4 : 1 }]}
         >
           {phase === 'processing' ? (
             <ActivityIndicator color="#ffffff" />

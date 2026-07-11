@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS ideas (
   tempo INTEGER NOT NULL DEFAULT 60,
   time_signature TEXT NOT NULL DEFAULT '4/4',
   loop_length_bars INTEGER NOT NULL DEFAULT 4,
+  metronome_enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -48,6 +49,7 @@ export function getDatabase(): Promise<SQLiteDatabase> {
     databasePromise = openDatabaseAsync(DATABASE_NAME).then(async (db) => {
       await db.execAsync(MIGRATION_SQL);
       await migrateLayerPositionColumn(db);
+      await migrateIdeaMetronomeColumn(db);
       return db;
     });
   }
@@ -79,5 +81,22 @@ async function migrateLayerPositionColumn(db: SQLiteDatabase): Promise<void> {
           OR (other.created_at = layers.created_at AND other.id <= layers.id)
         )
     );
+  `);
+}
+
+/**
+ * Same rationale as `migrateLayerPositionColumn`: installs from before
+ * Stage 7 need an explicit ALTER TABLE to pick up the metronome toggle.
+ * Backfills to enabled, matching the default for new Ideas.
+ */
+async function migrateIdeaMetronomeColumn(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(ideas)');
+  const hasMetronomeEnabled = columns.some((column) => column.name === 'metronome_enabled');
+  if (hasMetronomeEnabled) {
+    return;
+  }
+
+  await db.execAsync(`
+    ALTER TABLE ideas ADD COLUMN metronome_enabled INTEGER NOT NULL DEFAULT 1;
   `);
 }

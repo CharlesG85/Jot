@@ -28,6 +28,34 @@ Do not record work in progress.
 
 ---
 
+# [0.8.0] - 2026-07-10
+
+### Added
+
+* A four-beat count-in plays before recording, with audio clicks and haptic taps, spaced to the Idea's tempo and accenting each bar's downbeat.
+* Metronome toggle in Idea Settings to turn the count-in on or off (on by default).
+
+---
+
+# [0.7.1] - 2026-07-10
+
+### Changed
+
+* A Layer's recording length now always rounds to a whole number of bars, so a recording that's stopped mid-bar keeps going a moment longer until the next bar rather than cutting off early.
+* Each Layer now shows its length in bars (e.g. "2 bars") instead of minutes and seconds.
+
+---
+
+# [0.7.0] - 2026-07-10
+
+### Added
+
+* Play an entire Idea: every Layer plays together, looping in sync.
+* Mute and Solo now affect Idea playback, and can be toggled while it's playing.
+* Recording a new Layer automatically stops at the Idea's loop boundary.
+
+---
+
 # [0.6.0] - 2026-07-09
 
 ### Added

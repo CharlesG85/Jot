@@ -2,6 +2,7 @@ import { File } from 'expo-file-system';
 
 import {
   DEFAULT_LOOP_LENGTH_BARS,
+  DEFAULT_METRONOME_ENABLED,
   DEFAULT_TEMPO,
   DEFAULT_TIME_SIGNATURE,
   type Idea,
@@ -20,6 +21,7 @@ interface IdeaRow {
   tempo: number;
   time_signature: string;
   loop_length_bars: number;
+  metronome_enabled: number;
   created_at: number;
   updated_at: number;
 }
@@ -47,6 +49,7 @@ function mapIdea(row: IdeaRow): Idea {
     tempo: row.tempo,
     timeSignature: row.time_signature as TimeSignature,
     loopLengthBars: row.loop_length_bars,
+    metronomeEnabled: row.metronome_enabled === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -92,18 +95,20 @@ class SqliteStorageService implements StorageService {
       tempo: DEFAULT_TEMPO,
       timeSignature: DEFAULT_TIME_SIGNATURE,
       loopLengthBars: DEFAULT_LOOP_LENGTH_BARS,
+      metronomeEnabled: DEFAULT_METRONOME_ENABLED,
       createdAt: now,
       updatedAt: now,
     };
     await db.runAsync(
-      `INSERT INTO ideas (id, title, lyrics, tempo, time_signature, loop_length_bars, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO ideas (id, title, lyrics, tempo, time_signature, loop_length_bars, metronome_enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       idea.id,
       idea.title,
       idea.lyrics,
       idea.tempo,
       idea.timeSignature,
       idea.loopLengthBars,
+      idea.metronomeEnabled ? 1 : 0,
       idea.createdAt,
       idea.updatedAt,
     );
@@ -119,13 +124,14 @@ class SqliteStorageService implements StorageService {
     const updated: Idea = { ...existing, ...changes, updatedAt: Date.now() };
     await db.runAsync(
       `UPDATE ideas
-       SET title = ?, lyrics = ?, tempo = ?, time_signature = ?, loop_length_bars = ?, updated_at = ?
+       SET title = ?, lyrics = ?, tempo = ?, time_signature = ?, loop_length_bars = ?, metronome_enabled = ?, updated_at = ?
        WHERE id = ?`,
       updated.title,
       updated.lyrics,
       updated.tempo,
       updated.timeSignature,
       updated.loopLengthBars,
+      updated.metronomeEnabled ? 1 : 0,
       updated.updatedAt,
       id,
     );

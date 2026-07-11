@@ -10,17 +10,26 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { EditableHeaderTitle } from '@/features/idea-workspace/editable-header-title';
 import { LyricsEditor } from '@/features/idea-workspace/lyrics-editor';
+import { PlayIdeaButton } from '@/features/idea-workspace/play-idea-button';
 import {
   RECORD_BUTTON_RESERVED_HEIGHT,
   RecordButton,
 } from '@/features/idea-workspace/record-button';
 import { ReorderableLayerList } from '@/features/idea-workspace/reorderable-layer-list';
 import { SettingsButton } from '@/features/idea-workspace/settings-button';
+import { useIdeaPlayback } from '@/features/idea-workspace/use-idea-playback';
 import { useLayerRecorder } from '@/features/idea-workspace/use-layer-recorder';
 import { useIdeasStore } from '@/features/ideas/store';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  DEFAULT_LOOP_LENGTH_BARS,
+  DEFAULT_METRONOME_ENABLED,
+  DEFAULT_TEMPO,
+  DEFAULT_TIME_SIGNATURE,
+} from '@/models/idea';
 import type { Layer } from '@/models/layer';
 import { storageService } from '@/services/sqlite-storage-service';
+import { getBarDurationSeconds } from '@/utils/loop-duration';
 
 interface WorkspaceScreenProps {
   ideaId: string;
@@ -45,9 +54,21 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
     storageService.listLayers(ideaId).then(setLayers);
   }, [ideaId]);
 
-  const recorder = useLayerRecorder(ideaId, (layer) => {
+  // Idea may not be loaded yet — fall back to defaults so the recorder still
+  // has a sane loop boundary before we know the real one. The Not Found
+  // screen below covers the case where it never loads.
+  const ideaTiming = idea ?? {
+    tempo: DEFAULT_TEMPO,
+    timeSignature: DEFAULT_TIME_SIGNATURE,
+    loopLengthBars: DEFAULT_LOOP_LENGTH_BARS,
+    metronomeEnabled: DEFAULT_METRONOME_ENABLED,
+  };
+  const barDurationSeconds = getBarDurationSeconds(ideaTiming);
+
+  const recorder = useLayerRecorder(ideaId, ideaTiming, (layer) => {
     setLayers((prev) => [...prev, layer]);
   });
+  const playback = useIdeaPlayback(layers);
 
   async function handleRenameLayer(layerId: string, name: string) {
     const updated = await storageService.updateLayer(layerId, { name });
@@ -167,6 +188,7 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
             <ReorderableLayerList
               layers={layers}
               isEditing={isEditingLayers}
+              barDurationSeconds={barDurationSeconds}
               onRename={handleRenameLayer}
               onToggleMute={handleToggleMute}
               onToggleSolo={handleToggleSolo}
@@ -180,7 +202,14 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
       <RecordButton
         phase={recorder.phase}
         durationMillis={recorder.durationMillis}
-        onPress={recorder.phase === 'recording' ? recorder.stop : recorder.start}
+        countInBeat={recorder.countInBeat}
+        onPress={recorder.phase === 'idle' ? recorder.start : recorder.stop}
+        disabled={playback.isPlaying}
+      />
+      <PlayIdeaButton
+        isPlaying={playback.isPlaying}
+        disabled={layers.length === 0 || recorder.phase !== 'idle'}
+        onPress={playback.isPlaying ? playback.stop : playback.play}
       />
     </ThemedView>
   );

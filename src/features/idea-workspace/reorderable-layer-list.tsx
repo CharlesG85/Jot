@@ -22,6 +22,7 @@ const ROW_TOTAL_HEIGHT = ROW_HEIGHT + Spacing.two;
 interface ReorderableLayerListProps {
   layers: Layer[];
   isEditing: boolean;
+  barDurationSeconds: number;
   onRename: (layerId: string, name: string) => void;
   onToggleMute: (layerId: string) => void;
   onToggleSolo: (layerId: string) => void;
@@ -37,6 +38,7 @@ interface ReorderableLayerListProps {
 export function ReorderableLayerList({
   layers,
   isEditing,
+  barDurationSeconds,
   onRename,
   onToggleMute,
   onToggleSolo,
@@ -62,6 +64,7 @@ export function ReorderableLayerList({
           <LayerCard
             key={layer.id}
             layer={layer}
+            barDurationSeconds={barDurationSeconds}
             onRename={(name) => onRename(layer.id, name)}
             onToggleMute={() => onToggleMute(layer.id)}
             onToggleSolo={() => onToggleSolo(layer.id)}

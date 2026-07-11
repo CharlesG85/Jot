@@ -8,6 +8,7 @@ export type TimeSignature = '4/4' | '3/4';
 export const DEFAULT_TEMPO = 60;
 export const DEFAULT_TIME_SIGNATURE: TimeSignature = '4/4';
 export const DEFAULT_LOOP_LENGTH_BARS = 4;
+export const DEFAULT_METRONOME_ENABLED = true;
 
 export interface Idea {
   id: string;
@@ -16,6 +17,8 @@ export interface Idea {
   tempo: number;
   timeSignature: TimeSignature;
   loopLengthBars: number;
+  /** Whether the four-beat count-in plays before recording. */
+  metronomeEnabled: boolean;
   createdAt: number;
   /** Last substantive content edit (lyrics, timing, Layers) — used to sort the Idea list. Renaming alone does not bump this. */
   updatedAt: number;

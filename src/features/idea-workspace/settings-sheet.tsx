@@ -1,7 +1,7 @@
 import { Stack, useRouter } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -21,6 +21,7 @@ interface SettingsSheetProps {
 
 export function SettingsSheet({ ideaId }: SettingsSheetProps) {
   const router = useRouter();
+  const theme = useTheme();
   const { ideas, updateSettings } = useIdeasStore();
   const idea = ideas.find((candidate) => candidate.id === ideaId);
 
@@ -102,6 +103,21 @@ export function SettingsSheet({ ideaId }: SettingsSheetProps) {
           getLabel={(option) => `${option} ${option === 1 ? 'Bar' : 'Bars'}`}
           onChange={(loopLengthBars) => updateSettings(ideaId, { loopLengthBars })}
         />
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.sectionLabel} themeColor="textSecondary">
+          Metronome
+        </ThemedText>
+        <View style={styles.metronomeRow}>
+          <ThemedText style={Typography.body}>Count-in before recording</ThemedText>
+          <Switch
+            accessibilityLabel="Count-in before recording"
+            value={idea.metronomeEnabled}
+            onValueChange={(metronomeEnabled) => updateSettings(ideaId, { metronomeEnabled })}
+            trackColor={{ true: theme.accent }}
+          />
+        </View>
       </View>
     </ThemedView>
   );
@@ -253,6 +269,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.five,
+  },
+  metronomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   tempoValue: {
     alignItems: 'center',

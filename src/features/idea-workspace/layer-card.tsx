@@ -11,12 +11,13 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { EditableLayerName } from '@/features/idea-workspace/editable-layer-name';
 import { useTheme } from '@/hooks/use-theme';
 import type { Layer } from '@/models/layer';
-import { formatDuration } from '@/utils/format-duration';
+import { formatBarCount } from '@/utils/format-bar-count';
 
 const DELETE_RED = '#FF3B30';
 
 interface LayerCardProps {
   layer: Layer;
+  barDurationSeconds: number;
   onRename: (name: string) => void;
   onToggleMute: () => void;
   onToggleSolo: () => void;
@@ -25,6 +26,7 @@ interface LayerCardProps {
 
 export function LayerCard({
   layer,
+  barDurationSeconds,
   onRename,
   onToggleMute,
   onToggleSolo,
@@ -119,7 +121,7 @@ export function LayerCard({
         </Pressable>
 
         <ThemedText style={styles.duration} themeColor="textSecondary">
-          {formatDuration(status.duration * 1000)}
+          {formatBarCount(status.duration, barDurationSeconds)}
         </ThemedText>
       </ThemedView>
     </Swipeable>

@@ -12,7 +12,7 @@ interface IdeasState {
   updateLyrics: (id: string, lyrics: string) => Promise<void>;
   updateSettings: (
     id: string,
-    changes: Partial<Pick<Idea, 'tempo' | 'timeSignature' | 'loopLengthBars'>>,
+    changes: Partial<Pick<Idea, 'tempo' | 'timeSignature' | 'loopLengthBars' | 'metronomeEnabled'>>,
   ) => Promise<void>;
   deleteIdea: (id: string) => Promise<void>;
 }

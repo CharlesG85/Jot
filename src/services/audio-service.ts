@@ -10,4 +10,4 @@
  * A hook is the idiomatic fit here, not a compromise. See
  * docs/03_ROADMAP.md Stage 4.
  */
-export type RecordingPhase = 'idle' | 'recording' | 'processing';
+export type RecordingPhase = 'idle' | 'counting-in' | 'recording' | 'processing';
