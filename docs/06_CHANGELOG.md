@@ -28,6 +28,29 @@ Do not record work in progress.
 
 ---
 
+# [0.10.0] - 2026-07-12
+
+### Fixed
+
+* Recordings made with the count-in enabled could end up containing almost no real audio, regardless of how long the recording was held. Recording now always captures exactly what was performed.
+
+### Changed
+
+* The count-in now plays exactly one beat per beat of the Idea's time signature (3 beats for 3/4, 4 for 4/4, etc.) instead of always counting in four, and always ends on the downbeat.
+* The count-in no longer plays an audio click — it now uses haptic feedback and an on-screen beat indicator only.
+
+---
+
+# [0.9.0] - 2026-07-12
+
+### Changed
+
+* Tapping Stop now ends a recording immediately — it no longer waits for the next bar boundary.
+* A Layer's playback loop length is now chosen automatically after recording, from the actual length performed, rounding up to the nearest musically useful length (1, 2, 4, or 8 bars) rather than stretching the recording itself to fit.
+* Original recordings are always saved exactly as performed; loop length is stored separately and only affects how a Layer repeats during synchronized Idea playback.
+
+---
+
 # [0.8.0] - 2026-07-10
 
 ### Added

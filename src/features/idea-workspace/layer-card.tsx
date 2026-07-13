@@ -1,7 +1,7 @@
-import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import * as Sharing from 'expo-sharing';
 import { SymbolView } from 'expo-symbols';
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
 
@@ -11,13 +11,14 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { EditableLayerName } from '@/features/idea-workspace/editable-layer-name';
 import { useTheme } from '@/hooks/use-theme';
 import type { Layer } from '@/models/layer';
-import { formatBarCount } from '@/utils/format-bar-count';
+import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
+import { formatBars } from '@/utils/format-bar-count';
+import { logRender } from '@/utils/render-logger';
 
 const DELETE_RED = '#FF3B30';
 
 interface LayerCardProps {
   layer: Layer;
-  barDurationSeconds: number;
   onRename: (name: string) => void;
   onToggleMute: () => void;
   onToggleSolo: () => void;
@@ -26,21 +27,89 @@ interface LayerCardProps {
 
 export function LayerCard({
   layer,
-  barDurationSeconds,
   onRename,
   onToggleMute,
   onToggleSolo,
   onDelete,
 }: LayerCardProps) {
+  logRender('LayerCard');
   const theme = useTheme();
-  const player = useAudioPlayer(layer.audioPath ?? undefined);
-  const status = useAudioPlayerStatus(player);
+  // The preview player is created lazily, on first press of the play
+  // button (see createPreviewPlayer) — not at mount — so a Layer sitting
+  // untouched in the list doesn't hold a native player. The bar-count
+  // label doesn't depend on this player at all — it reads `loopLengthBars`
+  // straight from the Layer, computed once at record time (Stage 6.5).
+  const playerRef = useRef<AudioPlayer | null>(null);
+  const subscriptionRef = useRef<{ remove: () => void } | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  useEffect(() => {
-    if (status.didJustFinish) {
-      player.seekTo(0);
+  function releasePlayer() {
+    subscriptionRef.current?.remove();
+    subscriptionRef.current = null;
+    const player = playerRef.current;
+    if (!player) {
+      return;
     }
-  }, [status.didJustFinish, player]);
+    logAudioLifecycle('player', 'destroy', player.id, `layer-preview:${layer.id}`);
+    player.remove();
+    playerRef.current = null;
+  }
+
+  // Only cleanup path needed beyond "playback finished" (handled inline
+  // below) — releases the preview player if the card unmounts mid-playback.
+  useEffect(() => {
+    return () => releasePlayer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function createPreviewPlayer(): AudioPlayer {
+    const player = createAudioPlayer(layer.audioPath ?? undefined);
+    logAudioLifecycle('player', 'create', player.id, `layer-preview:${layer.id}`);
+    playerRef.current = player;
+    subscriptionRef.current = player.addListener('playbackStatusUpdate', (status) => {
+      // Temporary — verifying the isLoaded/duration guard below against a
+      // real device capture. Only fires while this Layer's preview player
+      // is alive, so it's inherently scoped to one Layer at a time.
+      console.log('[layer-preview-status]', {
+        layerId: layer.id,
+        isLoaded: status.isLoaded,
+        duration: status.duration,
+        didJustFinish: status.didJustFinish,
+        playing: status.playing,
+      });
+
+      // Players are created on-demand now, so the first status update(s)
+      // can arrive before the file has finished loading — a player that
+      // hasn't loaded yet reports duration 0, and `didJustFinish` from
+      // that state isn't a real completion, just an artifact of nothing
+      // being loaded to play yet. Only release on a completion that
+      // actually happened after real audio played.
+      const isRealCompletion = status.isLoaded && status.duration > 0 && status.didJustFinish;
+      if (isRealCompletion) {
+        player.seekTo(0);
+        setIsPlaying(false);
+        releasePlayer();
+      }
+    });
+    return player;
+  }
+
+  function handlePlayPause() {
+    if (isPlaying) {
+      const activePlayer = playerRef.current;
+      if (activePlayer) {
+        logAudioLifecycle('player', 'pause', activePlayer.id, `layer-preview:${layer.id}`);
+        activePlayer.pause();
+      }
+      setIsPlaying(false);
+      return;
+    }
+
+    const player = playerRef.current ?? createPreviewPlayer();
+    logAudioLifecycle('player', 'play', player.id, `layer-preview:${layer.id}`);
+    player.play();
+    setIsPlaying(true);
+  }
 
   async function handleExport() {
     if (!layer.audioPath) {
@@ -81,15 +150,11 @@ export function LayerCard({
     >
       <ThemedView type="backgroundElement" style={styles.card}>
         <Pressable
-          accessibilityLabel={status.playing ? 'Pause' : 'Play'}
-          onPress={() => (status.playing ? player.pause() : player.play())}
+          accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+          onPress={handlePlayPause}
           style={[styles.playButton, { backgroundColor: theme.accent }]}
         >
-          <SymbolView
-            name={status.playing ? 'pause.fill' : 'play.fill'}
-            tintColor="#ffffff"
-            size={16}
-          />
+          <SymbolView name={isPlaying ? 'pause.fill' : 'play.fill'} tintColor="#ffffff" size={16} />
         </Pressable>
 
         <View style={styles.nameContainer}>
@@ -121,7 +186,7 @@ export function LayerCard({
         </Pressable>
 
         <ThemedText style={styles.duration} themeColor="textSecondary">
-          {formatBarCount(status.duration, barDurationSeconds)}
+          {formatBars(layer.loopLengthBars)}
         </ThemedText>
       </ThemedView>
     </Swipeable>

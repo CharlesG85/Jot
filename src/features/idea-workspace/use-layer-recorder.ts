@@ -13,19 +13,38 @@ import { useCountIn } from '@/features/idea-workspace/use-count-in';
 import type { Idea } from '@/models/idea';
 import type { Layer } from '@/models/layer';
 import type { RecordingPhase } from '@/services/audio-service';
+import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
 import { storageService } from '@/services/sqlite-storage-service';
-import { getBarDurationSeconds, getLoopDurationSeconds } from '@/utils/loop-duration';
+import {
+  computeLoopLengthBars,
+  getBarDurationSeconds,
+  getLoopDurationSeconds,
+} from '@/utils/loop-duration';
 
-/** How often the recorder's elapsed duration is polled, in ms — tighter than the
- * default 500ms so the bar-boundary stop lands reasonably close to it. */
-const DURATION_POLL_INTERVAL_MS = 100;
+/** How often the recorder's elapsed duration is polled, in ms — used for the
+ * live timer label and for detecting the Idea's full-loop hard stop. */
+const DURATION_POLL_INTERVAL_MS = 500;
+
+const FILE_STABILITY_POLL_INTERVAL_MS = 50;
+const FILE_STABILITY_MAX_ATTEMPTS = 20;
 
 /**
- * A stop request within this many seconds of a bar boundary is treated as
- * landing on it — otherwise every stop would wait out almost a full poll
- * tick even when the recorder is effectively already there.
+ * Waits until a file's size stops changing between two consecutive checks
+ * (or a max wait elapses) — a proxy for "the native encoder has finished
+ * flushing this file to disk," since recorder.stop() resolving doesn't
+ * guarantee that on its own.
  */
-const BOUNDARY_TOLERANCE_SECONDS = 0.15;
+async function waitForFileToStabilize(uri: string): Promise<void> {
+  let previousSize = -1;
+  for (let attempt = 0; attempt < FILE_STABILITY_MAX_ATTEMPTS; attempt++) {
+    const size = new File(uri).size ?? 0;
+    if (size > 0 && size === previousSize) {
+      return;
+    }
+    previousSize = size;
+    await new Promise((resolve) => setTimeout(resolve, FILE_STABILITY_POLL_INTERVAL_MS));
+  }
+}
 
 interface UseLayerRecorderResult {
   phase: RecordingPhase;
@@ -37,14 +56,17 @@ interface UseLayerRecorderResult {
 }
 
 /**
- * Records a new Layer for an Idea. A recording's length always rounds to a
- * whole number of bars: original audio is never trimmed (see
- * docs/07_AUDIO_ARCHITECTURE.md §8, "Original recordings should always be
- * preserved"), so stopping mid-bar keeps recording for a moment longer until
- * the next bar boundary rather than cutting anything off. Recording also
- * hard-stops at the Idea's full loop length, same as before.
+ * Records a new Layer for an Idea. Recording always stops immediately when
+ * requested — it never waits out a bar boundary (docs/03_ROADMAP.md Stage
+ * 6.5, "Loop Interpretation"). The audio file is saved exactly as
+ * performed; a separate `loopLengthBars` value (see
+ * utils/loop-duration.ts's computeLoopLengthBars) is computed afterward
+ * from the real recorded duration and stored as Layer metadata — that's
+ * what the loop engine uses for looped Idea playback, not the file's own
+ * length. Recording still hard-stops automatically at the Idea's full loop
+ * length, same as before.
  *
- * If the Idea's metronome is enabled, a four-beat count-in
+ * If the Idea's metronome is enabled, a one-bar count-in
  * (docs/07_AUDIO_ARCHITECTURE.md §5) plays before the mic actually goes
  * live — never during, so the click can never bleed into the recording.
  */
@@ -56,8 +78,21 @@ export function useLayerRecorder(
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, DURATION_POLL_INTERVAL_MS);
   const [phase, setPhase] = useState<RecordingPhase>('idle');
-  const [pendingStopSeconds, setPendingStopSeconds] = useState<number | null>(null);
   const countIn = useCountIn(idea);
+
+  // Instrumentation only — observes the create/destroy of the recorder this
+  // hook already provides; does not create or manage the recorder itself.
+  // The id is captured here rather than re-read inside the cleanup: the
+  // underlying native object can already be released by the time cleanup
+  // runs (its own release effect isn't ordered relative to ours), and
+  // reading `recorder.id` again at that point throws.
+  useEffect(() => {
+    const recorderId = recorder.id;
+    logAudioLifecycle('recorder', 'create', recorderId, 'layer-recorder');
+    return () => {
+      logAudioLifecycle('recorder', 'destroy', recorderId, 'layer-recorder');
+    };
+  }, [recorder.id]);
 
   const barDurationSeconds = getBarDurationSeconds(idea);
   const loopDurationSeconds = getLoopDurationSeconds(idea);
@@ -77,7 +112,6 @@ export function useLayerRecorder(
     }
 
     await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-    await recorder.prepareToRecordAsync();
 
     if (idea.metronomeEnabled) {
       setPhase('counting-in');
@@ -88,19 +122,43 @@ export function useLayerRecorder(
       }
     }
 
+    // Prepared immediately before recording starts, not before the count-in
+    // — preparing that early left several real seconds of the count-in's
+    // own click playback happening on the same audio session before
+    // record() was ever called, which silently invalidated the prepared
+    // recorder and produced a near-empty capture regardless of how long the
+    // recording was actually held afterward.
+    logAudioLifecycle('recorder', 'prepare', recorder.id, 'layer-recorder');
+    await recorder.prepareToRecordAsync();
+
+    logAudioLifecycle('recorder', 'record', recorder.id, 'layer-recorder');
     recorder.record();
     setPhase('recording');
   }
 
   async function performStop() {
     setPhase('processing');
-    setPendingStopSeconds(null);
+    // Captured before stop(), not after — `recorder.currentTime` reads back
+    // as 0 once the recorder has actually stopped, so the elapsed time has
+    // to come from the polled state (the same value the live timer label
+    // uses) while the recorder is still active.
+    const durationSeconds = recorderState.durationMillis / 1000;
     try {
+      logAudioLifecycle('recorder', 'stop', recorder.id, 'layer-recorder');
       await recorder.stop();
       const uri = recorder.uri;
       if (!uri) {
         throw new Error('Recording produced no file');
       }
+
+      // recorder.stop() can resolve before the native encoder has actually
+      // finished flushing the compressed audio to this file — reading it
+      // immediately can capture a file that's technically complete (valid
+      // container, correct headers) but holds only the first fraction of a
+      // second of real audio. Wait for its size to stop changing first.
+      await waitForFileToStabilize(uri);
+
+      const loopLengthBars = computeLoopLengthBars(durationSeconds, barDurationSeconds);
 
       const existingLayers = await storageService.listLayers(ideaId);
       const layer = await storageService.createLayer(ideaId, {
@@ -109,7 +167,11 @@ export function useLayerRecorder(
 
       const bytes = await new File(uri).bytes();
       const savedPath = await storageService.saveRecording(layer.id, bytes);
-      const updatedLayer = await storageService.updateLayer(layer.id, { audioPath: savedPath });
+      const updatedLayer = await storageService.updateLayer(layer.id, {
+        audioPath: savedPath,
+        durationSeconds,
+        loopLengthBars,
+      });
       await storageService.touchIdea(ideaId);
 
       onLayerRecorded(updatedLayer);
@@ -124,55 +186,34 @@ export function useLayerRecorder(
     }
   }
 
-  // A recording's saved length always rounds to a whole bar — original audio
-  // is never trimmed, so a stop request that lands mid-bar doesn't cut the
-  // recording off immediately. Instead it keeps recording until the next bar
-  // boundary, then stops for real (see performStop, called from the effect
-  // below). Requests within BOUNDARY_TOLERANCE_SECONDS of a boundary just
-  // stop right away rather than waiting out a whole extra poll tick.
+  // Stops immediately — no waiting for a bar boundary. The audio is saved
+  // exactly as performed; performStop() separately computes how many bars
+  // that maps to for playback purposes (see docs/03_ROADMAP.md Stage 6.5).
   async function stop() {
     if (phase === 'counting-in') {
       countIn.cancel();
       return;
     }
-    if (phase !== 'recording' || pendingStopSeconds !== null) {
+    if (phase !== 'recording') {
       return;
     }
-
-    const elapsedSeconds = recorderState.durationMillis / 1000;
-    const nearestBar = Math.max(1, Math.round(elapsedSeconds / barDurationSeconds));
-    let targetSeconds = Math.min(loopDurationSeconds, nearestBar * barDurationSeconds);
-    if (targetSeconds < elapsedSeconds - BOUNDARY_TOLERANCE_SECONDS) {
-      targetSeconds = Math.min(loopDurationSeconds, (nearestBar + 1) * barDurationSeconds);
-    }
-
-    if (targetSeconds <= elapsedSeconds + BOUNDARY_TOLERANCE_SECONDS) {
-      await performStop();
-    } else {
-      setPendingStopSeconds(targetSeconds);
-    }
+    await performStop();
   }
 
-  // Reacts to the native recorder's own polled duration (an external system,
-  // not state derived from props) to trigger performStop once either the
-  // Idea's full loop boundary or a pending bar-quantized stop is reached —
-  // so the "don't setState in an effect" and "include every reference in
-  // deps" rules both assume a narrower pattern than this legitimate case.
-  // `performStop` is redefined every render; adding it to deps would just
-  // make this run unconditionally, which isn't needed since `phase`/
-  // `durationMillis`/`pendingStopSeconds` are the real triggers.
+  // Automatic hard stop once a recording reaches the Idea's full loop
+  // length — unrelated to the user-initiated stop() above, which is always
+  // immediate now. `performStop` is redefined every render; adding it to
+  // deps would just make this run unconditionally, which isn't needed
+  // since `phase`/`durationMillis` are the real triggers.
   /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
   useEffect(() => {
     if (phase !== 'recording') {
       return;
     }
-    const elapsedMillis = recorderState.durationMillis;
-    if (elapsedMillis >= loopDurationSeconds * 1000) {
-      performStop();
-    } else if (pendingStopSeconds !== null && elapsedMillis >= pendingStopSeconds * 1000) {
+    if (recorderState.durationMillis >= loopDurationSeconds * 1000) {
       performStop();
     }
-  }, [phase, recorderState.durationMillis, loopDurationSeconds, pendingStopSeconds]);
+  }, [phase, recorderState.durationMillis, loopDurationSeconds]);
   /* eslint-enable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 
   return {

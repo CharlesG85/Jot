@@ -12,11 +12,12 @@ import { EditableHeaderTitle } from '@/features/idea-workspace/editable-header-t
 import { LyricsEditor } from '@/features/idea-workspace/lyrics-editor';
 import { PlayIdeaButton } from '@/features/idea-workspace/play-idea-button';
 import {
-  RECORD_BUTTON_RESERVED_HEIGHT,
+  BUTTON_SIZE as RECORD_BUTTON_SIZE,
   RecordButton,
 } from '@/features/idea-workspace/record-button';
 import { ReorderableLayerList } from '@/features/idea-workspace/reorderable-layer-list';
 import { SettingsButton } from '@/features/idea-workspace/settings-button';
+import { Timeline } from '@/features/idea-workspace/timeline';
 import { useIdeaPlayback } from '@/features/idea-workspace/use-idea-playback';
 import { useLayerRecorder } from '@/features/idea-workspace/use-layer-recorder';
 import { useIdeasStore } from '@/features/ideas/store';
@@ -30,12 +31,14 @@ import {
 import type { Layer } from '@/models/layer';
 import { storageService } from '@/services/sqlite-storage-service';
 import { getBarDurationSeconds } from '@/utils/loop-duration';
+import { logRender } from '@/utils/render-logger';
 
 interface WorkspaceScreenProps {
   ideaId: string;
 }
 
 export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
+  logRender('WorkspaceScreen');
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const { ideas, isLoaded, loadIdeas } = useIdeasStore();
@@ -68,7 +71,7 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
   const recorder = useLayerRecorder(ideaId, ideaTiming, (layer) => {
     setLayers((prev) => [...prev, layer]);
   });
-  const playback = useIdeaPlayback(layers);
+  const playback = useIdeaPlayback(layers, barDurationSeconds, ideaTiming.loopLengthBars);
 
   async function handleRenameLayer(layerId: string, name: string) {
     const updated = await storageService.updateLayer(layerId, { name });
@@ -113,6 +116,14 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
     );
   }
 
+  function handleRecordButtonPress() {
+    if (recorder.phase === 'idle') {
+      recorder.start();
+    } else {
+      recorder.stop();
+    }
+  }
+
   if (!idea) {
     return (
       <ThemedView style={styles.notFound}>
@@ -131,10 +142,7 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
       />
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: insets.bottom + RECORD_BUTTON_RESERVED_HEIGHT },
-        ]}
+        contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
         <View>
@@ -188,7 +196,6 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
             <ReorderableLayerList
               layers={layers}
               isEditing={isEditingLayers}
-              barDurationSeconds={barDurationSeconds}
               onRename={handleRenameLayer}
               onToggleMute={handleToggleMute}
               onToggleSolo={handleToggleSolo}
@@ -199,18 +206,31 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
         </Animated.View>
       </ScrollView>
 
-      <RecordButton
-        phase={recorder.phase}
-        durationMillis={recorder.durationMillis}
-        countInBeat={recorder.countInBeat}
-        onPress={recorder.phase === 'idle' ? recorder.start : recorder.stop}
-        disabled={playback.isPlaying}
-      />
-      <PlayIdeaButton
-        isPlaying={playback.isPlaying}
-        disabled={layers.length === 0 || recorder.phase !== 'idle'}
-        onPress={playback.isPlaying ? playback.stop : playback.play}
-      />
+      <ThemedView style={[styles.dock, { paddingBottom: insets.bottom + Spacing.three }]}>
+        <Timeline
+          phase={recorder.phase}
+          isPlaying={playback.isPlaying}
+          idea={ideaTiming}
+          recordingDurationMillis={recorder.durationMillis}
+          getIdeaPlaybackProgress={playback.getLoopProgress}
+        />
+        <View style={styles.dockButtons}>
+          <RecordButton
+            phase={recorder.phase}
+            durationMillis={recorder.durationMillis}
+            countInBeat={recorder.countInBeat}
+            onPress={handleRecordButtonPress}
+            disabled={playback.isPlaying}
+          />
+          <View style={styles.playButtonAnchor}>
+            <PlayIdeaButton
+              isPlaying={playback.isPlaying}
+              disabled={layers.length === 0 || recorder.phase !== 'idle'}
+              onPress={playback.isPlaying ? playback.stop : playback.play}
+            />
+          </View>
+        </View>
+      </ThemedView>
     </ThemedView>
   );
 }
@@ -225,6 +245,28 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: Spacing.three,
     gap: Spacing.four,
+  },
+  dock: {
+    paddingHorizontal: Spacing.three,
+    gap: Spacing.three,
+  },
+  // RecordButton is the only child left in normal flow, so centering it is
+  // unambiguous — no flex-sibling balance for it to depend on.
+  dockButtons: {
+    position: 'relative',
+    alignItems: 'center',
+  },
+  // Positioned directly off RecordButton's own known size rather than as a
+  // balanced flex sibling, so it can't be thrown off by any flex/gap
+  // distribution subtlety — its right edge always lands exactly one gap to
+  // the left of RecordButton's left edge, regardless of its own width.
+  playButtonAnchor: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    right: '50%',
+    marginRight: RECORD_BUTTON_SIZE / 2 + Spacing.four,
+    justifyContent: 'center',
   },
   sectionHeader: {
     flexDirection: 'row',

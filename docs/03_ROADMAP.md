@@ -172,6 +172,28 @@ Reliable synchronized looping.
 
 ---
 
+## Stage 6.5 — Loop Interpretation
+
+### Goal
+
+Separate recording from playback.
+
+### Tasks
+
+* Stop recording immediately when the user taps Stop.
+* Store the exact recorded audio duration.
+* Compute the playback loop length (1, 2, 4, or 8 bars) after recording completes.
+* Store loop length as metadata, independent of the audio file.
+* Update the loop engine to repeat according to loopLengthBars, not the recording duration.
+* Preserve synchronized playback across all Layers.
+* Keep the original recording untouched.
+
+### Deliverable
+
+Audio is always captured exactly as performed while playback automatically loops at musically appropriate bar lengths.
+
+---
+
 ## Stage 7 — Metronome
 
 ### Goal
@@ -190,6 +212,21 @@ Improve recording timing.
 ### Deliverable
 
 Musically accurate recording workflow.
+
+### Additional Tasks
+
+### Additional Tasks
+
+* Implement a musical timeline at the bottom of the workspace.
+* Display beats and bars using simple tick marks.
+* Display a linear playback indicator that moves across the timeline during count-in, recording, and playback.
+* Synchronize the playback indicator with the project tempo and time signature.
+* Use constant linear motion (no spring, easing, or damping).
+* Reset the playback indicator to the beginning at the start of each loop.
+* Clearly distinguish bar markers from beat markers.
+* Keep the timeline informational only; it should not support scrubbing, editing, or waveform manipulation.
+* Ensure the timeline serves as a reliable visual timing reference while maintaining the app's clean, non-DAW interface.
+
 
 ---
 

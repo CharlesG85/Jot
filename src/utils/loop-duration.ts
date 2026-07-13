@@ -22,3 +22,20 @@ export function getLoopDurationSeconds(
 ): number {
   return idea.loopLengthBars * getBarDurationSeconds(idea);
 }
+
+/** The only bar lengths a Layer's playback loop can round to (docs/03_ROADMAP.md Stage 6.5). */
+export const ALLOWED_LAYER_LOOP_LENGTHS_BARS = [1, 2, 4, 8] as const;
+
+/**
+ * Picks the playback loop length for a newly-recorded Layer: the smallest
+ * allowed bar count that's at least as long as what was actually recorded,
+ * so a loop repeat never cuts off performed audio. Recordings longer than
+ * the largest allowed length (8 bars) are capped there — the saved file
+ * still contains everything performed, only looped Idea playback restarts
+ * early.
+ */
+export function computeLoopLengthBars(durationSeconds: number, barDurationSeconds: number): number {
+  const bars = durationSeconds / barDurationSeconds;
+  const fit = ALLOWED_LAYER_LOOP_LENGTHS_BARS.find((allowed) => bars <= allowed);
+  return fit ?? ALLOWED_LAYER_LOOP_LENGTHS_BARS[ALLOWED_LAYER_LOOP_LENGTHS_BARS.length - 1];
+}

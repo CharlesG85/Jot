@@ -30,6 +30,8 @@ CREATE TABLE IF NOT EXISTS layers (
   solo INTEGER NOT NULL DEFAULT 0,
   volume REAL NOT NULL DEFAULT 1,
   audio_path TEXT,
+  duration_seconds REAL NOT NULL DEFAULT 0,
+  loop_length_bars INTEGER NOT NULL DEFAULT 1,
   midi_data TEXT,
   position INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
@@ -50,6 +52,7 @@ export function getDatabase(): Promise<SQLiteDatabase> {
       await db.execAsync(MIGRATION_SQL);
       await migrateLayerPositionColumn(db);
       await migrateIdeaMetronomeColumn(db);
+      await migrateLayerLoopMetadataColumns(db);
       return db;
     });
   }
@@ -98,5 +101,26 @@ async function migrateIdeaMetronomeColumn(db: SQLiteDatabase): Promise<void> {
 
   await db.execAsync(`
     ALTER TABLE ideas ADD COLUMN metronome_enabled INTEGER NOT NULL DEFAULT 1;
+  `);
+}
+
+/**
+ * Installs from before Stage 6.5 need duration/loop-length metadata added.
+ * Their original files remain fully intact either way — this only affects
+ * playback looping. `duration_seconds` can't be recovered without reading
+ * every existing file, so it's left at 0; `loop_length_bars` defaults to 1
+ * bar, which is a safe (if imprecise) starting point until each Layer is
+ * re-recorded.
+ */
+async function migrateLayerLoopMetadataColumns(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(layers)');
+  const hasLoopLengthBars = columns.some((column) => column.name === 'loop_length_bars');
+  if (hasLoopLengthBars) {
+    return;
+  }
+
+  await db.execAsync(`
+    ALTER TABLE layers ADD COLUMN duration_seconds REAL NOT NULL DEFAULT 0;
+    ALTER TABLE layers ADD COLUMN loop_length_bars INTEGER NOT NULL DEFAULT 1;
   `);
 }

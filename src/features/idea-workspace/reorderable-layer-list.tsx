@@ -15,6 +15,7 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { LayerCard } from '@/features/idea-workspace/layer-card';
 import { useTheme } from '@/hooks/use-theme';
 import type { Layer } from '@/models/layer';
+import { logRender } from '@/utils/render-logger';
 
 const ROW_HEIGHT = 56;
 const ROW_TOTAL_HEIGHT = ROW_HEIGHT + Spacing.two;
@@ -22,7 +23,6 @@ const ROW_TOTAL_HEIGHT = ROW_HEIGHT + Spacing.two;
 interface ReorderableLayerListProps {
   layers: Layer[];
   isEditing: boolean;
-  barDurationSeconds: number;
   onRename: (layerId: string, name: string) => void;
   onToggleMute: (layerId: string) => void;
   onToggleSolo: (layerId: string) => void;
@@ -38,13 +38,13 @@ interface ReorderableLayerListProps {
 export function ReorderableLayerList({
   layers,
   isEditing,
-  barDurationSeconds,
   onRename,
   onToggleMute,
   onToggleSolo,
   onDelete,
   onReorder,
 }: ReorderableLayerListProps) {
+  logRender('ReorderableLayerList');
   // Shared across every row so each one can react to where the dragged row
   // currently hovers and spring out of the way — must stay above any early
   // return so hook order never changes between renders. Identified by the
@@ -64,7 +64,6 @@ export function ReorderableLayerList({
           <LayerCard
             key={layer.id}
             layer={layer}
-            barDurationSeconds={barDurationSeconds}
             onRename={(name) => onRename(layer.id, name)}
             onToggleMute={() => onToggleMute(layer.id)}
             onToggleSolo={() => onToggleSolo(layer.id)}

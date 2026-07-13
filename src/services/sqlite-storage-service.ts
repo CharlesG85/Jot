@@ -35,6 +35,8 @@ interface LayerRow {
   solo: number;
   volume: number;
   audio_path: string | null;
+  duration_seconds: number;
+  loop_length_bars: number;
   midi_data: string | null;
   position: number;
   created_at: number;
@@ -65,6 +67,8 @@ function mapLayer(row: LayerRow): Layer {
     solo: row.solo === 1,
     volume: row.volume,
     audioPath: row.audio_path,
+    durationSeconds: row.duration_seconds,
+    loopLengthBars: row.loop_length_bars,
     midiData: row.midi_data,
     position: row.position,
     createdAt: row.created_at,
@@ -183,14 +187,16 @@ class SqliteStorageService implements StorageService {
       solo: false,
       volume: 1,
       audioPath: null,
+      durationSeconds: 0,
+      loopLengthBars: 1,
       midiData: null,
       position: nextPosition?.nextPosition ?? 0,
       createdAt: now,
       updatedAt: now,
     };
     await db.runAsync(
-      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, midi_data, position, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, duration_seconds, loop_length_bars, midi_data, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       layer.id,
       layer.ideaId,
       layer.name,
@@ -199,6 +205,8 @@ class SqliteStorageService implements StorageService {
       layer.solo ? 1 : 0,
       layer.volume,
       layer.audioPath,
+      layer.durationSeconds,
+      layer.loopLengthBars,
       layer.midiData,
       layer.position,
       layer.createdAt,
@@ -219,7 +227,7 @@ class SqliteStorageService implements StorageService {
     const updated: Layer = { ...mapLayer(existing), ...changes, updatedAt: Date.now() };
     await db.runAsync(
       `UPDATE layers
-       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, midi_data = ?, position = ?, updated_at = ?
+       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, duration_seconds = ?, loop_length_bars = ?, midi_data = ?, position = ?, updated_at = ?
        WHERE id = ?`,
       updated.name,
       updated.instrument,
@@ -227,6 +235,8 @@ class SqliteStorageService implements StorageService {
       updated.solo ? 1 : 0,
       updated.volume,
       updated.audioPath,
+      updated.durationSeconds,
+      updated.loopLengthBars,
       updated.midiData,
       updated.position,
       updated.updatedAt,

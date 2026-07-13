@@ -1,17 +1,10 @@
 import { SymbolView } from 'expo-symbols';
 import { Pressable, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Radius, Spacing } from '@/constants/theme';
-import { BUTTON_SIZE as RECORD_BUTTON_SIZE } from '@/features/idea-workspace/record-button';
+import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 const BUTTON_SIZE = 56;
-const GAP_FROM_RECORD_BUTTON = Spacing.four;
-// Positions this button's center left of the (separately, absolutely
-// centered) Record button, computed from Record's own size so the two
-// never drift apart if either button's dimensions change.
-const OFFSET_FROM_CENTER = -(RECORD_BUTTON_SIZE / 2 + GAP_FROM_RECORD_BUTTON + BUTTON_SIZE);
 
 interface PlayIdeaButtonProps {
   isPlaying: boolean;
@@ -22,7 +15,6 @@ interface PlayIdeaButtonProps {
 /** Plays every Layer of the Idea together, looping. Sits beside (not replacing) the Record button. */
 export function PlayIdeaButton({ isPlaying, disabled, onPress }: PlayIdeaButtonProps) {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
 
   return (
     <Pressable
@@ -33,8 +25,6 @@ export function PlayIdeaButton({ isPlaying, disabled, onPress }: PlayIdeaButtonP
         styles.button,
         {
           backgroundColor: theme.accent,
-          bottom: insets.bottom + Spacing.four,
-          marginLeft: OFFSET_FROM_CENTER,
           opacity: disabled ? 0.4 : 1,
         },
       ]}
@@ -46,8 +36,6 @@ export function PlayIdeaButton({ isPlaying, disabled, onPress }: PlayIdeaButtonP
 
 const styles = StyleSheet.create({
   button: {
-    position: 'absolute',
-    left: '50%',
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: Radius.pill,

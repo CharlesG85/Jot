@@ -2,6 +2,8 @@
 
 # Audio Architecture Specification
 
+This document defines architectural constraints, not implementation details. New features should integrate with the existing architecture rather than redesign it. If a proposed feature requires changing these architectural rules, the design should be reviewed before implementation begins.
+
 ## 1. Purpose
 
 The audio engine is responsible for:
@@ -76,13 +78,16 @@ Default:
 
 Requirements:
 
-* Four-beat count-in
+* One-bar count-in (beat count matches the Idea's time signature)
 * Respect project tempo
 * Respect project time signature
-* Optional haptic feedback
-* Optional audio metronome
+* Haptic feedback, plus an on-screen beat indicator
+* No audio click — audio playback couldn't be scheduled precisely enough to
+  stay on the beat grid, while haptic/visual timing held up reliably on the
+  same schedule, so the count-in relies on those instead
 
-Future versions may add additional count-in options.
+Future versions may revisit an audio click if a more precise scheduling
+mechanism becomes available.
 
 ---
 
@@ -111,6 +116,19 @@ Requirements:
 * Volume control per Layer
 
 Playback should remain synchronized for the duration of the session.
+
+### Additional Tasks
+
+* Implement a musical timeline at the bottom of the workspace.
+* Display beats and bars using simple tick marks.
+* Display a linear playback indicator that moves across the timeline during count-in, recording, and playback.
+* Synchronize the playback indicator with the project tempo and time signature.
+* Use constant linear motion (no spring, easing, or damping).
+* Reset the playback indicator to the beginning at the start of each loop.
+* Clearly distinguish bar markers from beat markers.
+* Keep the timeline informational only; it should not support scrubbing, editing, or waveform manipulation.
+* Ensure the timeline serves as a reliable visual timing reference while maintaining the app's clean, non-DAW interface.
+
 
 ---
 
@@ -208,3 +226,53 @@ Audio processing should never noticeably impact UI responsiveness.
 * Preserve original recordings.
 * Favor simple, maintainable solutions over complex audio processing.
 * Optimize for a smooth songwriting experience rather than professional production features.
+
+
+# 15. Subsystem Responsibilities
+
+Each subsystem should have one primary responsibility.
+
+Transport
+- Owns musical timing.
+- Schedules musical events.
+
+Recorder
+- Owns microphone interaction.
+- Starts and stops recordings.
+- Does not determine musical timing.
+
+Playback
+- Plays audio.
+- Synchronizes playback with the Transport.
+
+Metronome
+- Produces audible clicks and optional haptics.
+- Follows the Transport.
+
+Storage
+- Saves and loads recordings.
+- Does not participate in timing.
+
+Layer Manager
+- Organizes recordings and playback settings.
+- Does not schedule playback.
+
+UI
+- Displays application state.
+- Does not control musical timing directly.
+
+
+# 16. Dependency Rules
+
+Subsystems should communicate through well-defined interfaces.
+
+The following principles apply:
+
+- The Transport owns musical time.
+- Other subsystems consume Transport state.
+- UI components should observe state rather than schedule audio.
+- React components should not create musical timers.
+- Avoid duplicate sources of truth.
+- Prefer extending existing systems over introducing parallel timing systems.
+
+Do not introduce a new subsystem unless it has a clear responsibility that cannot reasonably belong to an existing subsystem. When a new subsystem is introduced, it should begin as the smallest implementation that satisfies the current requirements.

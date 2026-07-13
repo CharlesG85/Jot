@@ -9,27 +9,16 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { RecordingPhase } from '@/services/audio-service';
 import { formatDuration } from '@/utils/format-duration';
+import { logRender } from '@/utils/render-logger';
 
 export const BUTTON_SIZE = 76;
 const RECORD_RED = '#FF3B30';
-
-/** Space the timer label + gap take up above the button while recording. */
-const TIMER_ALLOWANCE = Typography.footnote.lineHeight + Spacing.two;
-
-/**
- * How much clearance scrollable content needs above the safe-area bottom
- * inset to avoid sitting underneath this button (idle or recording state,
- * plus a little breathing room) — see workspace-screen.tsx.
- */
-export const RECORD_BUTTON_RESERVED_HEIGHT =
-  BUTTON_SIZE + Spacing.four + TIMER_ALLOWANCE + Spacing.three;
 
 interface RecordButtonProps {
   phase: RecordingPhase;
@@ -48,8 +37,8 @@ export function RecordButton({
   onPress,
   disabled,
 }: RecordButtonProps) {
+  logRender('RecordButton');
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const pulse = useSharedValue(1);
 
   useEffect(() => {
@@ -96,10 +85,7 @@ export function RecordButton({
           : 'Record';
 
   return (
-    <View
-      pointerEvents="box-none"
-      style={[styles.container, { bottom: insets.bottom + Spacing.four }]}
-    >
+    <View style={styles.container}>
       {phase === 'recording' && (
         <ThemedText style={styles.timer}>{formatDuration(durationMillis)}</ThemedText>
       )}
@@ -130,9 +116,6 @@ export function RecordButton({
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
     alignItems: 'center',
     gap: Spacing.two,
   },
