@@ -28,7 +28,9 @@ import {
   DEFAULT_TEMPO,
   DEFAULT_TIME_SIGNATURE,
 } from '@/models/idea';
-import type { Layer } from '@/models/layer';
+import type { InstrumentId } from '@/models/instrument';
+import type { EffectsIntensity, Layer } from '@/models/layer';
+import { ensureLayerRenderCached } from '@/services/midi-render-service';
 import { storageService } from '@/services/sqlite-storage-service';
 import { getBarDurationSeconds } from '@/utils/loop-duration';
 import { logRender } from '@/utils/render-logger';
@@ -102,10 +104,51 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
       return;
     }
     if (target.audioPath) {
-      await storageService.deleteRecording(target.audioPath);
+      await storageService.deleteAudioFile(target.audioPath);
+    }
+    if (target.renderedAudioPath) {
+      await storageService.deleteAudioFile(target.renderedAudioPath);
     }
     await storageService.deleteLayer(layerId);
     setLayers((prev) => prev.filter((layer) => layer.id !== layerId));
+  }
+
+  async function handleToggleMidi(layerId: string) {
+    const target = layers.find((layer) => layer.id === layerId);
+    if (!target) {
+      return;
+    }
+    const updated = await storageService.updateLayer(layerId, {
+      midiEnabled: !target.midiEnabled,
+      instrument: target.instrument ?? 'synth',
+    });
+    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
+    if (updated.midiEnabled) {
+      ensureLayerRenderCached(updated, ideaTiming).catch((error) => {
+        console.error('[midi-render] unexpected failure', error);
+      });
+    }
+  }
+
+  async function handleChangeInstrument(layerId: string, instrument: InstrumentId) {
+    const updated = await storageService.updateLayer(layerId, { instrument });
+    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
+    ensureLayerRenderCached(updated, ideaTiming).catch((error) => {
+      console.error('[midi-render] unexpected failure', error);
+    });
+  }
+
+  async function handleChangeVolume(layerId: string, volume: number) {
+    const updated = await storageService.updateLayer(layerId, { volume });
+    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
+  }
+
+  async function handleChangeEffectsIntensity(layerId: string, effectsIntensity: EffectsIntensity) {
+    const updated = await storageService.updateLayer(layerId, { effectsIntensity });
+    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
+    ensureLayerRenderCached(updated, ideaTiming).catch((error) => {
+      console.error('[midi-render] unexpected failure', error);
+    });
   }
 
   async function handleReorderLayers(orderedLayers: Layer[]) {
@@ -201,6 +244,10 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
               onToggleSolo={handleToggleSolo}
               onDelete={handleDeleteLayer}
               onReorder={handleReorderLayers}
+              onToggleMidi={handleToggleMidi}
+              onChangeInstrument={handleChangeInstrument}
+              onChangeVolume={handleChangeVolume}
+              onChangeEffectsIntensity={handleChangeEffectsIntensity}
             />
           )}
         </Animated.View>
@@ -209,9 +256,7 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
       <ThemedView style={[styles.dock, { paddingBottom: insets.bottom + Spacing.three }]}>
         <Timeline
           phase={recorder.phase}
-          isPlaying={playback.isPlaying}
           idea={ideaTiming}
-          recordingDurationMillis={recorder.durationMillis}
           getIdeaPlaybackProgress={playback.getLoopProgress}
         />
         <View style={styles.dockButtons}>

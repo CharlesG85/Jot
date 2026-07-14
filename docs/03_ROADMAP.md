@@ -10,23 +10,23 @@ Create a scalable foundation before implementing any features.
 
 ### Tasks
 
-* Create Expo project using Development Builds (NOT Expo Go)
-* Configure TypeScript
-* Configure Expo Router
-* Configure Zustand
-* Configure SQLite
-* Configure Expo File System
-* Configure Git
-* Create feature-first folder structure
-* Create theme constants
-* Create shared color palette
-* Create typography constants
-* Define Idea model
-* Define Layer model
-* Create Audio Service interface
-* Create Storage Service interface
-* Configure ESLint & Prettier
-* Verify app builds successfully on iOS
+- Create Expo project using Development Builds (NOT Expo Go)
+- Configure TypeScript
+- Configure Expo Router
+- Configure Zustand
+- Configure SQLite
+- Configure Expo File System
+- Configure Git
+- Create feature-first folder structure
+- Create theme constants
+- Create shared color palette
+- Create typography constants
+- Define Idea model
+- Define Layer model
+- Create Audio Service interface
+- Create Storage Service interface
+- Configure ESLint & Prettier
+- Verify app builds successfully on iOS
 
 ### Deliverable
 
@@ -42,15 +42,15 @@ Create the notebook experience.
 
 ### Tasks
 
-* Build Notes-style home screen
-* Display Idea list
-* Create floating "New Idea" button
-* Create new Idea
-* Rename Idea
-* Delete Idea
-* Persist Ideas locally
-* Sort by modified date
-* Search Ideas by title (promoted from Backlog on 2026-07-09; lyrics/tag search remain backlog items until those features exist)
+- Build Notes-style home screen
+- Display Idea list
+- Create floating "New Idea" button
+- Create new Idea
+- Rename Idea
+- Delete Idea
+- Persist Ideas locally
+- Sort by modified date
+- Search Ideas by title (promoted from Backlog on 2026-07-09; lyrics/tag search remain backlog items until those features exist)
 
 ### Deliverable
 
@@ -89,16 +89,17 @@ Configure musical timing.
 
 ### Tasks
 
-* Settings sheet
-* Tempo selector
-* Time signature selector
-* Loop length selector
-* Default:
+- Settings sheet
+- Tempo selector
+- Time signature selector
+- Loop length selector
+- Default:
 
-  * 60 BPM
-  * 4/4
-  * 4 Bars
-* Save settings
+  - 60 BPM
+  - 4/4
+  - 4 Bars
+
+- Save settings
 
 ### Deliverable
 
@@ -114,13 +115,13 @@ Record audio reliably.
 
 ### Tasks
 
-* Microphone permissions
-* Record audio
-* Stop recording
-* Save recording
-* Playback
-* Recording indicator
-* Processing state
+- Microphone permissions
+- Record audio
+- Stop recording
+- Save recording
+- Playback
+- Recording indicator
+- Processing state
 
 ### Deliverable
 
@@ -136,14 +137,14 @@ Support multiple musical ideas.
 
 ### Tasks
 
-* Add Layer
-* Rename Layer
-* Delete Layer
-* Swipe actions
-* Export Layer
-* Mute
-* Solo
-* Layer ordering
+- Add Layer
+- Rename Layer
+- Delete Layer
+- Swipe actions
+- Export Layer
+- Mute
+- Solo
+- Layer ordering
 
 ### Deliverable
 
@@ -159,12 +160,12 @@ Synchronize playback.
 
 ### Tasks
 
-* Loop playback
-* Automatic looping
-* Gapless playback
-* Synchronize Layers
-* Stop at loop boundary
-* Latency improvements
+- Loop playback
+- Automatic looping
+- Gapless playback
+- Synchronize Layers
+- Stop at loop boundary
+- Latency improvements
 
 ### Deliverable
 
@@ -180,13 +181,13 @@ Separate recording from playback.
 
 ### Tasks
 
-* Stop recording immediately when the user taps Stop.
-* Store the exact recorded audio duration.
-* Compute the playback loop length (1, 2, 4, or 8 bars) after recording completes.
-* Store loop length as metadata, independent of the audio file.
-* Update the loop engine to repeat according to loopLengthBars, not the recording duration.
-* Preserve synchronized playback across all Layers.
-* Keep the original recording untouched.
+- Stop recording immediately when the user taps Stop.
+- Store the exact recorded audio duration.
+- Compute the playback loop length (1, 2, 4, or 8 bars) after recording completes.
+- Store loop length as metadata, independent of the audio file.
+- Update the loop engine to repeat according to loopLengthBars, not the recording duration.
+- Preserve synchronized playback across all Layers.
+- Keep the original recording untouched.
 
 ### Deliverable
 
@@ -202,12 +203,12 @@ Improve recording timing.
 
 ### Tasks
 
-* Audio metronome
-* Haptic metronome
-* 4-beat count-in
-* Respect tempo
-* Respect time signature
-* Enable/disable metronome
+- Audio metronome
+- Haptic metronome
+- 4-beat count-in
+- Respect tempo
+- Respect time signature
+- Enable/disable metronome
 
 ### Deliverable
 
@@ -217,16 +218,15 @@ Musically accurate recording workflow.
 
 ### Additional Tasks
 
-* Implement a musical timeline at the bottom of the workspace.
-* Display beats and bars using simple tick marks.
-* Display a linear playback indicator that moves across the timeline during count-in, recording, and playback.
-* Synchronize the playback indicator with the project tempo and time signature.
-* Use constant linear motion (no spring, easing, or damping).
-* Reset the playback indicator to the beginning at the start of each loop.
-* Clearly distinguish bar markers from beat markers.
-* Keep the timeline informational only; it should not support scrubbing, editing, or waveform manipulation.
-* Ensure the timeline serves as a reliable visual timing reference while maintaining the app's clean, non-DAW interface.
-
+- Implement a musical timeline at the bottom of the workspace.
+- Display beats and bars using simple tick marks.
+- Display a linear playback indicator that moves across the timeline during count-in, recording, and playback.
+- Synchronize the playback indicator with the project tempo and time signature.
+- Use constant linear motion (no spring, easing, or damping).
+- Reset the playback indicator to the beginning at the start of each loop.
+- Clearly distinguish bar markers from beat markers.
+- Keep the timeline informational only; it should not support scrubbing, editing, or waveform manipulation.
+- Ensure the timeline serves as a reliable visual timing reference while maintaining the app's clean, non-DAW interface.
 
 ---
 
@@ -238,11 +238,11 @@ Convert recordings into editable musical data.
 
 ### Tasks
 
-* Pitch detection research
-* Prototype audio → MIDI
-* Quantization
-* Pitch correction
-* Internal MIDI representation
+- Pitch detection research
+- Prototype audio → MIDI
+- Quantization
+- Pitch correction
+- Internal MIDI representation
 
 ### Deliverable
 
@@ -254,22 +254,38 @@ Basic humming produces usable MIDI.
 
 ### Goal
 
-Play MIDI musically.
+Render MIDI into instrument audio, offline.
 
 ### Tasks
 
-* Instrument system
-* Piano
-* Guitar
-* Bass
-* Strings
-* Synth
-* Pads
-* Instrument switching
+- Offline instrument rendering engine (MIDI → audio file, never real-time synthesis)
+- Piano
+- Guitar
+- Bass
+- Strings
+- Synth
+- Pads
+- Instrument switching
+- Rendered-audio caching with background invalidation/regeneration
 
 ### Deliverable
 
-Ideas play back using lightweight instruments.
+A Layer with MIDI enabled plays back as rendered instrument audio — indistinguishable to the playback engine from an original recording. The playback engine never schedules or synthesizes MIDI in real time; its only responsibility is synchronized audio-file playback.
+
+### Additional Tasks
+
+- Implement expandable Layer cards.
+- Expand a Layer when the user taps the Layer card (excluding playback controls).
+- Animate expansion vertically, similar to Apple Voice Memos.
+- Add a MIDI toggle (On/Off). When enabled, render the Layer's MIDI data (docs/03_ROADMAP.md Stage 8) into an audio file using the selected instrument in the background, then play that rendered file; when disabled, play the original recording. The original recording is never modified or deleted.
+- Add an instrument selector (visible only when MIDI is enabled).
+- Add a horizontal volume slider.
+- Add expandable audio effects with simple intensity options:
+  - Off
+  - Low
+  - Medium
+  - High
+- Design the expanded Layer view to accommodate future controls without resembling a DAW.
 
 ---
 
@@ -281,11 +297,11 @@ Allow users to keep and share ideas.
 
 ### Tasks
 
-* Export entire Idea
-* Export Layer
-* Share Sheet
-* Prepare MIDI export
-* Prepare stem export architecture
+- Export entire Idea
+- Export Layer
+- Share Sheet
+- Prepare MIDI export
+- Prepare stem export architecture
 
 ### Deliverable
 
@@ -301,13 +317,13 @@ Make the app feel native.
 
 ### Tasks
 
-* Micro animations
-* Recording animations
-* Playback animations
-* Haptics
-* Accessibility
-* Dark Mode
-* Performance optimization
+- Micro animations
+- Recording animations
+- Playback animations
+- Haptics
+- Accessibility
+- Dark Mode
+- Performance optimization
 
 ### Deliverable
 
@@ -323,12 +339,12 @@ Prepare for future monetization.
 
 ### Tasks
 
-* Feature gating
-* Layer limits
-* Premium instruments
-* Sound library architecture
-* Upgrade prompts
-* Purchase abstraction
+- Feature gating
+- Layer limits
+- Premium instruments
+- Sound library architecture
+- Upgrade prompts
+- Purchase abstraction
 
 ### Deliverable
 
@@ -338,10 +354,10 @@ Premium-ready architecture without affecting free users.
 
 # Development Rules
 
-* Complete one stage before beginning the next.
-* Do not skip stages.
-* Every stage must end with a working application.
-* Refactor immediately if a stage introduces technical debt.
-* Do not implement future-stage features early unless required as infrastructure.
-* Follow all specifications in PROJECT_VISION.md, UI_SPEC.md, and TECH_SPEC.md.
-* If implementation conflicts with any specification, stop and request clarification.
+- Complete one stage before beginning the next.
+- Do not skip stages.
+- Every stage must end with a working application.
+- Refactor immediately if a stage introduces technical debt.
+- Do not implement future-stage features early unless required as infrastructure.
+- Follow all specifications in PROJECT_VISION.md, UI_SPEC.md, and TECH_SPEC.md.
+- If implementation conflicts with any specification, stop and request clarification.

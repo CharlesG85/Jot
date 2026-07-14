@@ -53,6 +53,7 @@ export function getDatabase(): Promise<SQLiteDatabase> {
       await migrateLayerPositionColumn(db);
       await migrateIdeaMetronomeColumn(db);
       await migrateLayerLoopMetadataColumns(db);
+      await migrateLayerRenderColumns(db);
       return db;
     });
   }
@@ -122,5 +123,26 @@ async function migrateLayerLoopMetadataColumns(db: SQLiteDatabase): Promise<void
   await db.execAsync(`
     ALTER TABLE layers ADD COLUMN duration_seconds REAL NOT NULL DEFAULT 0;
     ALTER TABLE layers ADD COLUMN loop_length_bars INTEGER NOT NULL DEFAULT 1;
+  `);
+}
+
+/**
+ * Installs from before Stage 9 need the MIDI-toggle/render-cache columns
+ * added. `instrument`/`midi_data` already existed (Stage 8) — this only
+ * adds the toggle, the rendered-audio cache path + fingerprint, and the
+ * (currently unused-by-audio) effects intensity setting.
+ */
+async function migrateLayerRenderColumns(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(layers)');
+  const hasMidiEnabled = columns.some((column) => column.name === 'midi_enabled');
+  if (hasMidiEnabled) {
+    return;
+  }
+
+  await db.execAsync(`
+    ALTER TABLE layers ADD COLUMN midi_enabled INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE layers ADD COLUMN rendered_audio_path TEXT;
+    ALTER TABLE layers ADD COLUMN rendered_audio_fingerprint TEXT;
+    ALTER TABLE layers ADD COLUMN effects_intensity TEXT NOT NULL DEFAULT 'off';
   `);
 }

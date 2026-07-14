@@ -185,6 +185,38 @@ Low
 
 ---
 
+## Remaining Instrument Palette
+
+Stage 9 shipped with a single synthesized voice (Synth) to prove out the
+render/cache architecture. The rest of the roadmap's originally-listed
+instruments were deliberately deferred, not dropped:
+
+* Piano
+* Guitar
+* Bass
+* Strings
+* Pads
+
+Each is a new `InstrumentDefinition` (src/models/instrument.ts) — the
+Renderer itself is already generic and needs no changes to support them.
+
+Priority:
+Medium
+
+---
+
+## Real Effects Processing
+
+Stage 9 shipped the Off/Low/Medium/High effects-intensity control and
+persists the setting per Layer, but it doesn't yet alter rendered audio —
+no EQ, reverb, or delay is actually applied. This is separate, real DSP
+work.
+
+Priority:
+Medium
+
+---
+
 ## Audio Cleanup
 
 Reduce background noise.

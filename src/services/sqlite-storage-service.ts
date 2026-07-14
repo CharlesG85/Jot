@@ -8,10 +8,11 @@ import {
   type Idea,
   type TimeSignature,
 } from '@/models/idea';
-import type { Layer } from '@/models/layer';
+import type { InstrumentId } from '@/models/instrument';
+import type { EffectsIntensity, Layer } from '@/models/layer';
 import type { StorageService } from '@/services/storage-service';
 import { getDatabase } from '@/storage/database';
-import { recordingsDirectory } from '@/storage/file-system';
+import { recordingsDirectory, rendersDirectory } from '@/storage/file-system';
 import { generateId } from '@/utils/id';
 
 interface IdeaRow {
@@ -38,6 +39,10 @@ interface LayerRow {
   duration_seconds: number;
   loop_length_bars: number;
   midi_data: string | null;
+  midi_enabled: number;
+  rendered_audio_path: string | null;
+  rendered_audio_fingerprint: string | null;
+  effects_intensity: string;
   position: number;
   created_at: number;
   updated_at: number;
@@ -62,7 +67,7 @@ function mapLayer(row: LayerRow): Layer {
     id: row.id,
     ideaId: row.idea_id,
     name: row.name,
-    instrument: row.instrument,
+    instrument: row.instrument as InstrumentId | null,
     muted: row.muted === 1,
     solo: row.solo === 1,
     volume: row.volume,
@@ -70,6 +75,10 @@ function mapLayer(row: LayerRow): Layer {
     durationSeconds: row.duration_seconds,
     loopLengthBars: row.loop_length_bars,
     midiData: row.midi_data,
+    midiEnabled: row.midi_enabled === 1,
+    renderedAudioPath: row.rendered_audio_path,
+    renderedAudioFingerprint: row.rendered_audio_fingerprint,
+    effectsIntensity: row.effects_intensity as EffectsIntensity,
     position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -190,13 +199,17 @@ class SqliteStorageService implements StorageService {
       durationSeconds: 0,
       loopLengthBars: 1,
       midiData: null,
+      midiEnabled: false,
+      renderedAudioPath: null,
+      renderedAudioFingerprint: null,
+      effectsIntensity: 'off',
       position: nextPosition?.nextPosition ?? 0,
       createdAt: now,
       updatedAt: now,
     };
     await db.runAsync(
-      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, duration_seconds, loop_length_bars, midi_data, position, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, duration_seconds, loop_length_bars, midi_data, midi_enabled, rendered_audio_path, rendered_audio_fingerprint, effects_intensity, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       layer.id,
       layer.ideaId,
       layer.name,
@@ -208,6 +221,10 @@ class SqliteStorageService implements StorageService {
       layer.durationSeconds,
       layer.loopLengthBars,
       layer.midiData,
+      layer.midiEnabled ? 1 : 0,
+      layer.renderedAudioPath,
+      layer.renderedAudioFingerprint,
+      layer.effectsIntensity,
       layer.position,
       layer.createdAt,
       layer.updatedAt,
@@ -227,7 +244,7 @@ class SqliteStorageService implements StorageService {
     const updated: Layer = { ...mapLayer(existing), ...changes, updatedAt: Date.now() };
     await db.runAsync(
       `UPDATE layers
-       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, duration_seconds = ?, loop_length_bars = ?, midi_data = ?, position = ?, updated_at = ?
+       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, duration_seconds = ?, loop_length_bars = ?, midi_data = ?, midi_enabled = ?, rendered_audio_path = ?, rendered_audio_fingerprint = ?, effects_intensity = ?, position = ?, updated_at = ?
        WHERE id = ?`,
       updated.name,
       updated.instrument,
@@ -238,6 +255,10 @@ class SqliteStorageService implements StorageService {
       updated.durationSeconds,
       updated.loopLengthBars,
       updated.midiData,
+      updated.midiEnabled ? 1 : 0,
+      updated.renderedAudioPath,
+      updated.renderedAudioFingerprint,
+      updated.effectsIntensity,
       updated.position,
       updated.updatedAt,
       id,
@@ -268,7 +289,13 @@ class SqliteStorageService implements StorageService {
     return file.uri;
   }
 
-  async deleteRecording(path: string): Promise<void> {
+  async saveRenderedAudio(layerId: string, data: Uint8Array): Promise<string> {
+    const file = new File(rendersDirectory, `${layerId}.wav`);
+    file.write(data);
+    return file.uri;
+  }
+
+  async deleteAudioFile(path: string): Promise<void> {
     const file = new File(path);
     if (file.exists) {
       file.delete();

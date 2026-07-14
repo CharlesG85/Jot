@@ -14,7 +14,8 @@ import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { LayerCard } from '@/features/idea-workspace/layer-card';
 import { useTheme } from '@/hooks/use-theme';
-import type { Layer } from '@/models/layer';
+import type { InstrumentId } from '@/models/instrument';
+import type { EffectsIntensity, Layer } from '@/models/layer';
 import { logRender } from '@/utils/render-logger';
 
 const ROW_HEIGHT = 56;
@@ -28,6 +29,10 @@ interface ReorderableLayerListProps {
   onToggleSolo: (layerId: string) => void;
   onDelete: (layerId: string) => void;
   onReorder: (orderedLayers: Layer[]) => void;
+  onToggleMidi: (layerId: string) => void;
+  onChangeInstrument: (layerId: string, instrument: InstrumentId) => void;
+  onChangeVolume: (layerId: string, volume: number) => void;
+  onChangeEffectsIntensity: (layerId: string, intensity: EffectsIntensity) => void;
 }
 
 /**
@@ -43,6 +48,10 @@ export function ReorderableLayerList({
   onToggleSolo,
   onDelete,
   onReorder,
+  onToggleMidi,
+  onChangeInstrument,
+  onChangeVolume,
+  onChangeEffectsIntensity,
 }: ReorderableLayerListProps) {
   logRender('ReorderableLayerList');
   // Shared across every row so each one can react to where the dragged row
@@ -68,6 +77,10 @@ export function ReorderableLayerList({
             onToggleMute={() => onToggleMute(layer.id)}
             onToggleSolo={() => onToggleSolo(layer.id)}
             onDelete={() => onDelete(layer.id)}
+            onToggleMidi={() => onToggleMidi(layer.id)}
+            onChangeInstrument={(instrument) => onChangeInstrument(layer.id, instrument)}
+            onChangeVolume={(volume) => onChangeVolume(layer.id, volume)}
+            onChangeEffectsIntensity={(intensity) => onChangeEffectsIntensity(layer.id, intensity)}
           />
         ))}
       </View>

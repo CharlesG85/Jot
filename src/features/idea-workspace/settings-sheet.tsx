@@ -3,6 +3,7 @@ import { SymbolView } from 'expo-symbols';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Switch, TextInput, View } from 'react-native';
 
+import { SegmentedControl } from '@/components/segmented-control';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, Typography } from '@/constants/theme';
@@ -214,40 +215,6 @@ function TempoTextInput({
   );
 }
 
-function SegmentedControl<T extends string | number>({
-  options,
-  value,
-  getLabel,
-  onChange,
-}: {
-  options: T[];
-  value: T;
-  getLabel: (option: T) => string;
-  onChange: (option: T) => void;
-}) {
-  const theme = useTheme();
-
-  return (
-    <View style={[styles.segmentedControl, { backgroundColor: theme.backgroundElement }]}>
-      {options.map((option) => {
-        const selected = option === value;
-        return (
-          <Pressable
-            key={String(option)}
-            accessibilityLabel={getLabel(option)}
-            onPress={() => onChange(option)}
-            style={[styles.segment, selected && { backgroundColor: theme.accent }]}
-          >
-            <ThemedText style={[styles.segmentLabel, selected && styles.segmentLabelSelected]}>
-              {getLabel(option)}
-            </ThemedText>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -296,24 +263,5 @@ const styles = StyleSheet.create({
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  segmentedControl: {
-    flexDirection: 'row',
-    borderRadius: Radius.medium,
-    padding: Spacing.half,
-    gap: Spacing.half,
-  },
-  segment: {
-    flex: 1,
-    paddingVertical: Spacing.two,
-    borderRadius: Radius.small,
-    alignItems: 'center',
-  },
-  segmentLabel: {
-    ...Typography.subhead,
-    fontWeight: '600',
-  },
-  segmentLabelSelected: {
-    color: '#ffffff',
   },
 });

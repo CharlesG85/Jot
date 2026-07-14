@@ -1,14 +1,18 @@
+import type { InstrumentId } from '@/models/instrument';
+
 /**
  * A Layer is a single musical performance within an Idea (melody, harmony,
  * bass line, etc). Layers inherit tempo/time signature/loop length from
  * their parent Idea and never have independent timing.
  */
 
+export type EffectsIntensity = 'off' | 'low' | 'medium' | 'high';
+
 export interface Layer {
   id: string;
   ideaId: string;
   name: string;
-  instrument: string | null;
+  instrument: InstrumentId | null;
   muted: boolean;
   solo: boolean;
   volume: number;
@@ -24,8 +28,27 @@ export interface Layer {
    * without the underlying file ever being trimmed.
    */
   loopLengthBars: number;
-  /** Reserved for the future MIDI pipeline (docs/03_ROADMAP.md Stage 8). */
+  /**
+   * A JSON-serialized `MidiData` (see src/models/midi.ts), produced by
+   * Stage 8's pitch-detection pipeline — null until analyzed, or if
+   * analysis failed (see midi-analysis-service.ts). Purely derived,
+   * additive data — `audioPath`'s original recording is never touched by
+   * this; it's only played back internally (muted) to capture PCM samples.
+   */
   midiData: string | null;
+  /** Whether playback should use the rendered instrument audio instead of the original recording (Stage 9). */
+  midiEnabled: boolean;
+  /** Path to the cached rendered instrument audio — derived, regenerable, never authoritative. See midi-render-service.ts. */
+  renderedAudioPath: string | null;
+  /**
+   * A fingerprint of the `(midiData, instrument, effectsIntensity)` the
+   * current `renderedAudioPath` was generated from — compared against the
+   * Layer's current values to decide whether the cached render is still
+   * valid. See midi-render-service.ts.
+   */
+  renderedAudioFingerprint: string | null;
+  /** UI-only for now — not yet applied to rendered audio. See docs/03_ROADMAP.md Stage 9. */
+  effectsIntensity: EffectsIntensity;
   /** 0-based order within the parent Idea's Layer stack. */
   position: number;
   createdAt: number;

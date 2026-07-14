@@ -6,7 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { getDatabase } from '@/storage/database';
-import { ensureRecordingsDirectory } from '@/storage/file-system';
+import { ensureRecordingsDirectory, ensureRendersDirectory } from '@/storage/file-system';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -17,8 +17,9 @@ export default function RootLayout() {
     getDatabase().catch((error) => console.error('Failed to initialize database', error));
     try {
       ensureRecordingsDirectory();
+      ensureRendersDirectory();
     } catch (error) {
-      console.error('Failed to prepare recordings directory', error);
+      console.error('Failed to prepare recordings/renders directory', error);
     }
   }, []);
 

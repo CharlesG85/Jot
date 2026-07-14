@@ -28,6 +28,28 @@ Do not record work in progress.
 
 ---
 
+# [0.12.0] - 2026-07-13
+
+### Added
+
+* Layers can now play back as a rendered instrument instead of the original recording — tap a Layer to expand it, then switch on "Use MIDI." Currently offers one instrument (Synth); more are planned.
+* Expanded Layer view also adds a volume slider and an effects-intensity option (Off/Low/Medium/High) — the effects setting is saved but doesn't change the sound yet.
+* Clear "Converting to MIDI…" / "Rendering instrument…" indicators appear on a Layer while it's being prepared for MIDI playback, instead of no feedback at all.
+
+### Changed
+
+* Switching a Layer's instrument, or turning MIDI on for the first time, regenerates its instrument audio automatically in the background; unrelated edits (mute, solo, rename) never trigger this.
+
+---
+
+# [0.11.0] - 2026-07-13
+
+### Added
+
+* Recordings are now automatically analyzed in the background and converted into an internal musical representation (pitch, timing, and loudness) — the foundation for upcoming instrument playback. The original recording is never modified or replaced, and how recordings are saved hasn't changed.
+
+---
+
 # [0.10.0] - 2026-07-12
 
 ### Fixed

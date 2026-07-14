@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { Layer } from '@/models/layer';
 import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
+import { getLayerPlaybackPath } from '@/utils/layer-playback';
 
 /**
  * Gap between each Layer's native player create/remove during play()/stop(),
@@ -37,10 +38,19 @@ interface UseIdeaPlaybackResult {
  * native player's own end-of-file loop — a recording is saved exactly as
  * performed (docs/03_ROADMAP.md Stage 6.5), so its raw file length is
  * usually shorter or longer than the musically-appropriate loop length.
- * Each player is manually rewound and restarted on a per-Layer timer
- * instead, which also correctly produces silence for the remainder of a
- * short recording's loop, and restarts early (without ever trimming the
- * file) for a recording longer than its loop length.
+ * Each Layer is manually restarted on its own timer instead, which also
+ * correctly produces silence for the remainder of a short recording's loop,
+ * and restarts early (without ever trimming the file) for a recording
+ * longer than its loop length.
+ *
+ * `computeLoopLengthBars` always rounds a Layer's loop length *up* to the
+ * nearest allowed bar count, so a recording is shorter than its own loop
+ * length far more often than not — meaning the native player reaches its
+ * own real end-of-file before the scheduled restart fires on almost every
+ * loop. A once-finished AudioPlayer can get stuck instead of resuming when
+ * replayed (the same native quirk that motivated using fresh players per
+ * beat in use-count-in.ts) — so each scheduled restart here creates a fresh
+ * player rather than reusing one that may have already finished.
  *
  * See docs/07_AUDIO_ARCHITECTURE.md §6-7.
  */
@@ -73,6 +83,33 @@ export function useIdeaPlayback(
     }
   }
 
+  // A fresh AudioPlayer for this restart, replacing whatever's currently in
+  // playersRef — never the same instance twice, since it may have already
+  // reached its own natural end-of-file (see the module docstring) and a
+  // finished player isn't reliable to replay in place. Its volume carries
+  // over from the outgoing player rather than being recomputed here, since
+  // the mute/solo effect already keeps that player's volume current — this
+  // just preserves whatever it last applied.
+  function restartLayer(layerId: string) {
+    const layer = layers.find((candidate) => candidate.id === layerId);
+    const outgoing = playersRef.current.get(layerId);
+    const playbackPath = layer ? getLayerPlaybackPath(layer) : null;
+    if (!playbackPath || !outgoing) {
+      return;
+    }
+
+    const player = createAudioPlayer(playbackPath);
+    logAudioLifecycle('player', 'create', player.id, `idea-playback:${layerId}`);
+    player.volume = outgoing.volume;
+    playersRef.current.set(layerId, player);
+    logAudioLifecycle('player', 'play', player.id, 'idea-playback');
+    player.play();
+
+    logAudioLifecycle('player', 'destroy', outgoing.id, `idea-playback:${layerId}`);
+    outgoing.pause();
+    outgoing.remove();
+  }
+
   // Every repeat is scheduled against this Layer's own fixed start time, not
   // relative to when the previous repeat's callback happened to fire — so
   // per-repeat overhead and setTimeout's own imprecision can't accumulate
@@ -82,7 +119,6 @@ export function useIdeaPlayback(
   // they stay correctly phase-locked to each other and to the Timeline.
   function scheduleLoop(
     layerId: string,
-    player: AudioPlayer,
     startTime: number,
     loopLengthSeconds: number,
     repeatIndex: number,
@@ -104,11 +140,10 @@ export function useIdeaPlayback(
     const targetTime = startTime + repeatIndex * loopLengthSeconds * 1000;
     const delay = Math.max(0, targetTime - Date.now());
     const timer = setTimeout(() => {
-      player.seekTo(0);
-      player.play();
+      restartLayer(layerId);
       // `repeatIndex` full cycles have just completed for this Layer.
       repeatCountRef.current.set(layerId, repeatIndex);
-      scheduleLoop(layerId, player, startTime, loopLengthSeconds, repeatIndex + 1);
+      scheduleLoop(layerId, startTime, loopLengthSeconds, repeatIndex + 1);
     }, delay);
     loopTimersRef.current.set(layerId, timer);
   }
@@ -194,10 +229,11 @@ export function useIdeaPlayback(
       if (sessionRef.current !== session) {
         break;
       }
-      if (!layer.audioPath || playersRef.current.has(layer.id)) {
+      const playbackPath = getLayerPlaybackPath(layer);
+      if (!playbackPath || playersRef.current.has(layer.id)) {
         continue;
       }
-      const player = createAudioPlayer(layer.audioPath);
+      const player = createAudioPlayer(playbackPath);
       logAudioLifecycle('player', 'create', player.id, `idea-playback:${layer.id}`);
       const shouldBeAudible = anySolo ? layer.solo : !layer.muted;
       player.volume = shouldBeAudible ? layer.volume : 0;
@@ -250,7 +286,7 @@ export function useIdeaPlayback(
       repeatCountRef.current.set(layer.id, 0);
       logAudioLifecycle('player', 'play', player.id, 'idea-playback');
       player.play();
-      scheduleLoop(layer.id, player, startTime, layer.loopLengthBars * barDurationSeconds, 1);
+      scheduleLoop(layer.id, startTime, layer.loopLengthBars * barDurationSeconds, 1);
     }
     setIsPlaying(true);
   }

@@ -1,18 +1,25 @@
+import { Slider } from '@expo/ui';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import * as Sharing from 'expo-sharing';
 import { SymbolView } from 'expo-symbols';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Switch, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { EditableLayerName } from '@/features/idea-workspace/editable-layer-name';
+import { EffectsIntensitySelector } from '@/features/idea-workspace/effects-intensity-selector';
+import { InstrumentSelector } from '@/features/idea-workspace/instrument-selector';
+import { useLayerProcessingPhase } from '@/features/idea-workspace/midi-processing-store';
 import { useTheme } from '@/hooks/use-theme';
-import type { Layer } from '@/models/layer';
+import type { EffectsIntensity, Layer } from '@/models/layer';
+import type { InstrumentId } from '@/models/instrument';
 import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
 import { formatBars } from '@/utils/format-bar-count';
+import { getLayerPlaybackPath } from '@/utils/layer-playback';
 import { logRender } from '@/utils/render-logger';
 
 const DELETE_RED = '#FF3B30';
@@ -23,6 +30,10 @@ interface LayerCardProps {
   onToggleMute: () => void;
   onToggleSolo: () => void;
   onDelete: () => void;
+  onToggleMidi: () => void;
+  onChangeInstrument: (instrument: InstrumentId) => void;
+  onChangeVolume: (volume: number) => void;
+  onChangeEffectsIntensity: (intensity: EffectsIntensity) => void;
 }
 
 export function LayerCard({
@@ -31,9 +42,15 @@ export function LayerCard({
   onToggleMute,
   onToggleSolo,
   onDelete,
+  onToggleMidi,
+  onChangeInstrument,
+  onChangeVolume,
+  onChangeEffectsIntensity,
 }: LayerCardProps) {
   logRender('LayerCard');
   const theme = useTheme();
+  const processingPhase = useLayerProcessingPhase(layer.id);
+  const [isExpanded, setIsExpanded] = useState(false);
   // The preview player is created lazily, on first press of the play
   // button (see createPreviewPlayer) — not at mount — so a Layer sitting
   // untouched in the list doesn't hold a native player. The bar-count
@@ -63,21 +80,10 @@ export function LayerCard({
   }, []);
 
   function createPreviewPlayer(): AudioPlayer {
-    const player = createAudioPlayer(layer.audioPath ?? undefined);
+    const player = createAudioPlayer(getLayerPlaybackPath(layer) ?? undefined);
     logAudioLifecycle('player', 'create', player.id, `layer-preview:${layer.id}`);
     playerRef.current = player;
     subscriptionRef.current = player.addListener('playbackStatusUpdate', (status) => {
-      // Temporary — verifying the isLoaded/duration guard below against a
-      // real device capture. Only fires while this Layer's preview player
-      // is alive, so it's inherently scoped to one Layer at a time.
-      console.log('[layer-preview-status]', {
-        layerId: layer.id,
-        isLoaded: status.isLoaded,
-        duration: status.duration,
-        didJustFinish: status.didJustFinish,
-        playing: status.playing,
-      });
-
       // Players are created on-demand now, so the first status update(s)
       // can arrive before the file has finished loading — a player that
       // hasn't loaded yet reports duration 0, and `didJustFinish` from
@@ -127,6 +133,15 @@ export function LayerCard({
     });
   }
 
+  const isMidiUnavailable = !layer.midiData;
+  const midiSwitchDisabled = isMidiUnavailable || processingPhase !== null;
+  const processingLabel =
+    processingPhase === 'analyzing'
+      ? 'Converting to MIDI…'
+      : processingPhase === 'rendering'
+        ? 'Rendering instrument…'
+        : null;
+
   return (
     <Swipeable
       renderRightActions={() => (
@@ -150,44 +165,106 @@ export function LayerCard({
     >
       <ThemedView type="backgroundElement" style={styles.card}>
         <Pressable
-          accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
-          onPress={handlePlayPause}
-          style={[styles.playButton, { backgroundColor: theme.accent }]}
+          accessibilityLabel={isExpanded ? 'Collapse layer' : 'Expand layer'}
+          onPress={() => setIsExpanded((prev) => !prev)}
+          style={styles.row}
         >
-          <SymbolView name={isPlaying ? 'pause.fill' : 'play.fill'} tintColor="#ffffff" size={16} />
+          <Pressable
+            accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
+            onPress={handlePlayPause}
+            style={[styles.playButton, { backgroundColor: theme.accent }]}
+          >
+            <SymbolView
+              name={isPlaying ? 'pause.fill' : 'play.fill'}
+              tintColor="#ffffff"
+              size={16}
+            />
+          </Pressable>
+
+          <View style={styles.nameContainer}>
+            <EditableLayerName name={layer.name} onSubmit={onRename} style={styles.name} />
+          </View>
+
+          <Pressable
+            accessibilityLabel={layer.muted ? 'Unmute layer' : 'Mute layer'}
+            onPress={onToggleMute}
+            hitSlop={8}
+          >
+            <SymbolView
+              name={layer.muted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'}
+              tintColor={layer.muted ? DELETE_RED : theme.textSecondary}
+              size={18}
+            />
+          </Pressable>
+
+          <Pressable
+            accessibilityLabel={layer.solo ? 'Unsolo layer' : 'Solo layer'}
+            onPress={onToggleSolo}
+            hitSlop={8}
+          >
+            <SymbolView
+              name="headphones"
+              tintColor={layer.solo ? theme.accent : theme.textSecondary}
+              size={18}
+            />
+          </Pressable>
+
+          {processingPhase ? (
+            <ActivityIndicator size="small" />
+          ) : (
+            layer.midiEnabled && <SymbolView name="pianokeys" tintColor={theme.accent} size={18} />
+          )}
+
+          <ThemedText style={styles.duration} themeColor="textSecondary">
+            {formatBars(layer.loopLengthBars)}
+          </ThemedText>
         </Pressable>
 
-        <View style={styles.nameContainer}>
-          <EditableLayerName name={layer.name} onSubmit={onRename} style={styles.name} />
-        </View>
+        {isExpanded && (
+          <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.expandedContent}>
+            <View style={styles.expandedRow}>
+              <ThemedText style={Typography.body}>Use MIDI</ThemedText>
+              <Switch
+                accessibilityLabel="Use MIDI"
+                value={layer.midiEnabled}
+                onValueChange={onToggleMidi}
+                disabled={midiSwitchDisabled}
+                trackColor={{ true: theme.accent }}
+              />
+            </View>
+            {processingLabel && (
+              <ThemedText style={styles.processingLabel} themeColor="textSecondary">
+                {processingLabel}
+              </ThemedText>
+            )}
 
-        <Pressable
-          accessibilityLabel={layer.muted ? 'Unmute layer' : 'Mute layer'}
-          onPress={onToggleMute}
-          hitSlop={8}
-        >
-          <SymbolView
-            name={layer.muted ? 'speaker.slash.fill' : 'speaker.wave.2.fill'}
-            tintColor={layer.muted ? DELETE_RED : theme.textSecondary}
-            size={18}
-          />
-        </Pressable>
+            {layer.midiEnabled && layer.instrument && (
+              <View style={styles.expandedSection}>
+                <ThemedText style={styles.expandedLabel} themeColor="textSecondary">
+                  Instrument
+                </ThemedText>
+                <InstrumentSelector value={layer.instrument} onChange={onChangeInstrument} />
+              </View>
+            )}
 
-        <Pressable
-          accessibilityLabel={layer.solo ? 'Unsolo layer' : 'Solo layer'}
-          onPress={onToggleSolo}
-          hitSlop={8}
-        >
-          <SymbolView
-            name="headphones"
-            tintColor={layer.solo ? theme.accent : theme.textSecondary}
-            size={18}
-          />
-        </Pressable>
+            <View style={styles.expandedSection}>
+              <ThemedText style={styles.expandedLabel} themeColor="textSecondary">
+                Volume
+              </ThemedText>
+              <Slider value={layer.volume} onValueChange={onChangeVolume} min={0} max={1} />
+            </View>
 
-        <ThemedText style={styles.duration} themeColor="textSecondary">
-          {formatBars(layer.loopLengthBars)}
-        </ThemedText>
+            <View style={styles.expandedSection}>
+              <ThemedText style={styles.expandedLabel} themeColor="textSecondary">
+                Effects
+              </ThemedText>
+              <EffectsIntensitySelector
+                value={layer.effectsIntensity}
+                onChange={onChangeEffectsIntensity}
+              />
+            </View>
+          </Animated.View>
+        )}
       </ThemedView>
     </Swipeable>
   );
@@ -195,10 +272,12 @@ export function LayerCard({
 
 const styles = StyleSheet.create({
   card: {
-    flexDirection: 'row',
-    alignItems: 'center',
     borderRadius: Radius.large,
     padding: Spacing.three,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.three,
   },
   playButton: {
@@ -224,5 +303,28 @@ const styles = StyleSheet.create({
     width: 60,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  expandedContent: {
+    marginTop: Spacing.three,
+    paddingTop: Spacing.three,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(128,128,128,0.3)',
+    gap: Spacing.three,
+  },
+  expandedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  processingLabel: {
+    ...Typography.footnote,
+    marginTop: -Spacing.two,
+  },
+  expandedSection: {
+    gap: Spacing.two,
+  },
+  expandedLabel: {
+    ...Typography.footnote,
+    textTransform: 'uppercase',
   },
 });

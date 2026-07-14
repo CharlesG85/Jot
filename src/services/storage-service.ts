@@ -31,5 +31,8 @@ export interface StorageService {
 
   /** Persists raw recording bytes for a Layer and returns the saved file's local path. */
   saveRecording(layerId: string, data: Uint8Array): Promise<string>;
-  deleteRecording(path: string): Promise<void>;
+  /** Persists rendered instrument audio bytes for a Layer and returns the saved file's local path. See midi-render-service.ts. */
+  saveRenderedAudio(layerId: string, data: Uint8Array): Promise<string>;
+  /** Deletes a file at the given path if it exists — used for both original recordings and rendered audio. */
+  deleteAudioFile(path: string): Promise<void>;
 }

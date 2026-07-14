@@ -20,10 +20,7 @@ const EDGE_INSET = BAR_TICK_WIDTH / 2;
 
 interface TimelineProps {
   phase: RecordingPhase;
-  isPlaying: boolean;
   idea: Pick<Idea, 'tempo' | 'timeSignature' | 'loopLengthBars'>;
-  /** Real, native-polled elapsed recording time — see useLayerRecorder. */
-  recordingDurationMillis: number;
   /** Real playback position snapshot — see useIdeaPlayback.getLoopProgress. */
   getIdeaPlaybackProgress: () => number | null;
 }
@@ -35,19 +32,13 @@ interface TimelineProps {
  * additional tasks). Never supports scrubbing, editing, or waveform display;
  * purely a timing reference.
  *
- * The indicator's position is driven entirely by useTransportProgress — the
- * audio engine (Recorder while recording, Layer players while playing back)
- * is the single source of truth, not an independent JS/animation clock. The
- * indicator stays parked at 0 during count-in (there's no audio yet to
+ * The indicator's position comes from useTransportProgress, which runs
+ * Recording and Playback as two distinct synchronization models rather than
+ * one shared clock — see that hook and docs/07_AUDIO_ARCHITECTURE.md §15-16.
+ * The indicator stays parked at 0 during count-in (there's no audio yet to
  * reflect) and whenever otherwise idle.
  */
-export function Timeline({
-  phase,
-  isPlaying,
-  idea,
-  recordingDurationMillis,
-  getIdeaPlaybackProgress,
-}: TimelineProps) {
+export function Timeline({ phase, idea, getIdeaPlaybackProgress }: TimelineProps) {
   const theme = useTheme();
   const [width, setWidth] = useState(0);
 
@@ -58,8 +49,6 @@ export function Timeline({
 
   const progress = useTransportProgress({
     phase,
-    isPlaying,
-    recordingDurationMillis,
     loopDurationSeconds,
     getIdeaPlaybackProgress,
   });

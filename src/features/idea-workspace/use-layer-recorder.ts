@@ -6,12 +6,14 @@ import {
   useAudioRecorderState,
 } from 'expo-audio';
 import { File } from 'expo-file-system';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, Linking } from 'react-native';
 
 import { useCountIn } from '@/features/idea-workspace/use-count-in';
 import type { Idea } from '@/models/idea';
 import type { Layer } from '@/models/layer';
+import { convertLayerToMidi } from '@/services/midi-analysis-service';
+import { ensureLayerRenderCached } from '@/services/midi-render-service';
 import type { RecordingPhase } from '@/services/audio-service';
 import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
 import { storageService } from '@/services/sqlite-storage-service';
@@ -79,6 +81,12 @@ export function useLayerRecorder(
   const recorderState = useAudioRecorderState(recorder, DURATION_POLL_INTERVAL_MS);
   const [phase, setPhase] = useState<RecordingPhase>('idle');
   const countIn = useCountIn(idea);
+  // Captured on the same high-resolution monotonic clock
+  // (performance.now()) the recording transport visually runs from — see
+  // useRecordingTransport — so the stored Layer duration lines up with what
+  // was actually on screen while it was recorded, rather than with the
+  // Recorder's own independently-polled notion of elapsed time.
+  const recordingStartTimeRef = useRef(0);
 
   // Instrumentation only — observes the create/destroy of the recorder this
   // hook already provides; does not create or manage the recorder itself.
@@ -133,16 +141,18 @@ export function useLayerRecorder(
 
     logAudioLifecycle('recorder', 'record', recorder.id, 'layer-recorder');
     recorder.record();
+    recordingStartTimeRef.current = performance.now();
     setPhase('recording');
   }
 
   async function performStop() {
     setPhase('processing');
-    // Captured before stop(), not after — `recorder.currentTime` reads back
-    // as 0 once the recorder has actually stopped, so the elapsed time has
-    // to come from the polled state (the same value the live timer label
-    // uses) while the recorder is still active.
-    const durationSeconds = recorderState.durationMillis / 1000;
+    // From the recording transport's own clock (see recordingStartTimeRef
+    // above), not the Recorder's polled duration — captured before stop(),
+    // not after, for the same reason as that value would have been: reading
+    // any time reference back out is unreliable once the recorder has
+    // actually stopped.
+    const durationSeconds = (performance.now() - recordingStartTimeRef.current) / 1000;
     try {
       logAudioLifecycle('recorder', 'stop', recorder.id, 'layer-recorder');
       await recorder.stop();
@@ -175,6 +185,19 @@ export function useLayerRecorder(
       await storageService.touchIdea(ideaId);
 
       onLayerRecorded(updatedLayer);
+
+      // Fire-and-forget: MIDI analysis never blocks or fails the recording
+      // flow itself — a conversion failure is only ever logged, never
+      // surfaced to the user (see midi-analysis-service.ts). A freshly
+      // recorded Layer always has `instrument: null`, so the render-cache
+      // call below is a guaranteed no-op today (its own guard short-circuits
+      // on that) — kept anyway so the cache stays correctly wired if MIDI
+      // analysis is ever re-run against an existing, MIDI-enabled Layer.
+      convertLayerToMidi(updatedLayer, idea)
+        .then(() => ensureLayerRenderCached(updatedLayer, idea))
+        .catch((error) => {
+          console.error('[midi-analysis] unexpected failure', error);
+        });
     } catch (error) {
       console.error('Failed to save recording', error);
       Alert.alert(
