@@ -131,8 +131,19 @@ function capturePcmSamples(audioPath: string): Promise<PcmCapture> {
  * (the original recording, saved exactly as expo-audio produced it) is
  * never modified; it's only played back internally, muted, to capture PCM
  * for analysis — see capturePcmSamples above.
+ *
+ * This only writes the result to storage — it has no way to know whether
+ * some component's in-memory copy of this Layer needs updating too, since
+ * it runs as a plain background call, not a hook. `onLayerUpdated`, if
+ * given, is called with the fresh Layer once `midiData` is persisted, so a
+ * caller can sync its own state (e.g. re-enable a "Use MIDI" toggle that
+ * was correctly disabled while `midiData` was still null).
  */
-export async function convertLayerToMidi(layer: Layer, idea: Pick<Idea, 'tempo'>): Promise<void> {
+export async function convertLayerToMidi(
+  layer: Layer,
+  idea: Pick<Idea, 'tempo'>,
+  onLayerUpdated?: (layer: Layer) => void,
+): Promise<void> {
   if (!layer.audioPath) {
     return;
   }
@@ -146,7 +157,10 @@ export async function convertLayerToMidi(layer: Layer, idea: Pick<Idea, 'tempo'>
     }
 
     const midiData = await convertPcmToMidi(samples, sampleRate, idea.tempo);
-    await storageService.updateLayer(layer.id, { midiData: JSON.stringify(midiData) });
+    const updated = await storageService.updateLayer(layer.id, {
+      midiData: JSON.stringify(midiData),
+    });
+    onLayerUpdated?.(updated);
     console.log('[midi-analysis] converted', {
       layerId: layer.id,
       noteCount: midiData.notes.length,

@@ -37,10 +37,17 @@ function computeRenderFingerprint(
  * Idempotent and cheap on a cache hit (one hash comparison) — safe to call
  * from every point that touches those three inputs without needing to
  * precisely track "did anything actually change."
+ *
+ * This only writes the result to storage — it has no way to know whether
+ * some component's in-memory copy of this Layer needs updating too, since
+ * it runs as a plain background call, not a hook. `onLayerUpdated`, if
+ * given, is called with the fresh Layer once a real (non-cache-hit) render
+ * is persisted, so a caller can sync its own state.
  */
 export async function ensureLayerRenderCached(
   layer: Layer,
   idea: Pick<Idea, 'tempo' | 'timeSignature' | 'loopLengthBars'>,
+  onLayerUpdated?: (layer: Layer) => void,
 ): Promise<void> {
   const instrument = layer.instrument;
   if (!layer.midiData || !instrument) {
@@ -83,10 +90,11 @@ export async function ensureLayerRenderCached(
 
     const wavBytes = encodeWavPcm16(samples, SAMPLE_RATE);
     const renderedAudioPath = await storageService.saveRenderedAudio(layer.id, wavBytes);
-    await storageService.updateLayer(layer.id, {
+    const updated = await storageService.updateLayer(layer.id, {
       renderedAudioPath,
       renderedAudioFingerprint: fingerprint,
     });
+    onLayerUpdated?.(updated);
     console.log('[midi-render] rendered', {
       layerId: layer.id,
       instrument,

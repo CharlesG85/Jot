@@ -70,9 +70,25 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
   };
   const barDurationSeconds = getBarDurationSeconds(ideaTiming);
 
-  const recorder = useLayerRecorder(ideaId, ideaTiming, (layer) => {
-    setLayers((prev) => [...prev, layer]);
-  });
+  // The Layer object handed to a background MIDI operation (analysis,
+  // rendering) at the moment it starts is a snapshot — `storageService`
+  // itself always ends up with the fresh result, but nothing updates this
+  // screen's own copy unless the operation's completion routes back through
+  // here. Every background-completion callback below uses this same sync,
+  // so a Layer's `midiData`/`renderedAudioPath` actually reaching the UI
+  // doesn't depend on remembering to wire it up per call site.
+  function syncLayer(layer: Layer) {
+    setLayers((prev) => prev.map((existing) => (existing.id === layer.id ? layer : existing)));
+  }
+
+  const recorder = useLayerRecorder(
+    ideaId,
+    ideaTiming,
+    (layer) => {
+      setLayers((prev) => [...prev, layer]);
+    },
+    syncLayer,
+  );
   const playback = useIdeaPlayback(layers, barDurationSeconds, ideaTiming.loopLengthBars);
 
   async function handleRenameLayer(layerId: string, name: string) {
@@ -122,9 +138,9 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
       midiEnabled: !target.midiEnabled,
       instrument: target.instrument ?? 'synth',
     });
-    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
+    syncLayer(updated);
     if (updated.midiEnabled) {
-      ensureLayerRenderCached(updated, ideaTiming).catch((error) => {
+      ensureLayerRenderCached(updated, ideaTiming, syncLayer).catch((error) => {
         console.error('[midi-render] unexpected failure', error);
       });
     }
@@ -132,21 +148,21 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
 
   async function handleChangeInstrument(layerId: string, instrument: InstrumentId) {
     const updated = await storageService.updateLayer(layerId, { instrument });
-    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
-    ensureLayerRenderCached(updated, ideaTiming).catch((error) => {
+    syncLayer(updated);
+    ensureLayerRenderCached(updated, ideaTiming, syncLayer).catch((error) => {
       console.error('[midi-render] unexpected failure', error);
     });
   }
 
   async function handleChangeVolume(layerId: string, volume: number) {
     const updated = await storageService.updateLayer(layerId, { volume });
-    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
+    syncLayer(updated);
   }
 
   async function handleChangeEffectsIntensity(layerId: string, effectsIntensity: EffectsIntensity) {
     const updated = await storageService.updateLayer(layerId, { effectsIntensity });
-    setLayers((prev) => prev.map((layer) => (layer.id === layerId ? updated : layer)));
-    ensureLayerRenderCached(updated, ideaTiming).catch((error) => {
+    syncLayer(updated);
+    ensureLayerRenderCached(updated, ideaTiming, syncLayer).catch((error) => {
       console.error('[midi-render] unexpected failure', error);
     });
   }

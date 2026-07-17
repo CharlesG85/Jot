@@ -7,10 +7,12 @@ import { useTheme } from '@/hooks/use-theme';
 interface EditableLayerNameProps {
   name: string;
   onSubmit: (name: string) => void;
+  /** Tapping to rename only makes sense once the card is already open — otherwise it competes with tapping the card itself to open it. */
+  editable: boolean;
   style?: TextStyle;
 }
 
-export function EditableLayerName({ name, onSubmit, style }: EditableLayerNameProps) {
+export function EditableLayerName({ name, onSubmit, editable, style }: EditableLayerNameProps) {
   const [isEditing, setIsEditing] = useState(false);
 
   if (isEditing) {
@@ -23,6 +25,14 @@ export function EditableLayerName({ name, onSubmit, style }: EditableLayerNamePr
           setIsEditing(false);
         }}
       />
+    );
+  }
+
+  if (!editable) {
+    return (
+      <ThemedText style={style} numberOfLines={1}>
+        {name}
+      </ThemedText>
     );
   }
 

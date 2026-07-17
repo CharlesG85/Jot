@@ -76,6 +76,7 @@ export function useLayerRecorder(
   ideaId: string,
   idea: Pick<Idea, 'tempo' | 'timeSignature' | 'loopLengthBars' | 'metronomeEnabled'>,
   onLayerRecorded: (layer: Layer) => void,
+  onLayerUpdated: (layer: Layer) => void,
 ): UseLayerRecorderResult {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder, DURATION_POLL_INTERVAL_MS);
@@ -193,8 +194,8 @@ export function useLayerRecorder(
       // call below is a guaranteed no-op today (its own guard short-circuits
       // on that) — kept anyway so the cache stays correctly wired if MIDI
       // analysis is ever re-run against an existing, MIDI-enabled Layer.
-      convertLayerToMidi(updatedLayer, idea)
-        .then(() => ensureLayerRenderCached(updatedLayer, idea))
+      convertLayerToMidi(updatedLayer, idea, onLayerUpdated)
+        .then(() => ensureLayerRenderCached(updatedLayer, idea, onLayerUpdated))
         .catch((error) => {
           console.error('[midi-analysis] unexpected failure', error);
         });

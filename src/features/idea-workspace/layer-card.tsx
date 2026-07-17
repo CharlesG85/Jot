@@ -1,4 +1,5 @@
 import { Slider } from '@expo/ui';
+import { Host } from '@expo/ui/swift-ui';
 import { createAudioPlayer, type AudioPlayer } from 'expo-audio';
 import * as Sharing from 'expo-sharing';
 import { SymbolView } from 'expo-symbols';
@@ -182,7 +183,12 @@ export function LayerCard({
           </Pressable>
 
           <View style={styles.nameContainer}>
-            <EditableLayerName name={layer.name} onSubmit={onRename} style={styles.name} />
+            <EditableLayerName
+              name={layer.name}
+              onSubmit={onRename}
+              editable={isExpanded}
+              style={styles.name}
+            />
           </View>
 
           <Pressable
@@ -209,13 +215,9 @@ export function LayerCard({
             />
           </Pressable>
 
-          {processingPhase ? (
-            <ActivityIndicator size="small" />
-          ) : (
-            layer.midiEnabled && <SymbolView name="pianokeys" tintColor={theme.accent} size={18} />
-          )}
+          {processingPhase && <ActivityIndicator size="small" />}
 
-          <ThemedText style={styles.duration} themeColor="textSecondary">
+          <ThemedText style={styles.duration} themeColor="textSecondary" numberOfLines={1}>
             {formatBars(layer.loopLengthBars)}
           </ThemedText>
         </Pressable>
@@ -251,7 +253,9 @@ export function LayerCard({
               <ThemedText style={styles.expandedLabel} themeColor="textSecondary">
                 Volume
               </ThemedText>
-              <Slider value={layer.volume} onValueChange={onChangeVolume} min={0} max={1} />
+              <Host style={styles.sliderHost}>
+                <Slider value={layer.volume} onValueChange={onChangeVolume} min={0} max={1} />
+              </Host>
             </View>
 
             <View style={styles.expandedSection}>
@@ -295,6 +299,12 @@ const styles = StyleSheet.create({
   },
   duration: {
     ...Typography.footnote,
+    // Fixed width (independent of "1 bar" vs "8 bars" length) so it never
+    // shifts the mute/solo icons, which sit before it but share the row's
+    // flex-1 name box — that box's computed width depends on every fixed
+    // width sibling, including this one.
+    width: 56,
+    textAlign: 'right',
   },
   swipeActions: {
     flexDirection: 'row',
@@ -326,5 +336,8 @@ const styles = StyleSheet.create({
   expandedLabel: {
     ...Typography.footnote,
     textTransform: 'uppercase',
+  },
+  sliderHost: {
+    height: 32,
   },
 });
