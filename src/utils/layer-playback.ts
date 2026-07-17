@@ -12,8 +12,14 @@ import type { Layer } from '@/models/layer';
  * recording, not the rendered audio (out of scope for this stage).
  */
 export function getLayerPlaybackPath(layer: Layer): string | null {
-  if (layer.midiEnabled && layer.renderedAudioPath) {
-    return layer.renderedAudioPath;
-  }
-  return layer.audioPath;
+  const resolvedPath =
+    layer.midiEnabled && layer.renderedAudioPath ? layer.renderedAudioPath : layer.audioPath;
+  console.log('[midi-debug] stage 5: playback path resolution', {
+    layerId: layer.id,
+    midiEnabled: layer.midiEnabled,
+    renderedAudioPath: layer.renderedAudioPath,
+    audioPath: layer.audioPath,
+    resolvedPath,
+  });
+  return resolvedPath;
 }

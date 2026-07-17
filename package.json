@@ -5,6 +5,7 @@
   "dependencies": {
     "@expo/ui": "~57.0.4",
     "expo": "~57.0.3",
+    "expo-asset": "~57.0.6",
     "expo-audio": "~57.0.0",
     "expo-constants": "~57.0.3",
     "expo-dev-client": "~57.0.5",
@@ -23,6 +24,7 @@
     "expo-symbols": "~57.0.0",
     "expo-system-ui": "~57.0.0",
     "expo-web-browser": "~57.0.0",
+    "onnxruntime-react-native": "^1.24.3",
     "pitchfinder": "^2.3.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",

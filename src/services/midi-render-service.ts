@@ -51,11 +51,20 @@ export async function ensureLayerRenderCached(
 ): Promise<void> {
   const instrument = layer.instrument;
   if (!layer.midiData || !instrument) {
+    console.log('[midi-debug] stage 4: rendering skipped — missing midiData or instrument', {
+      layerId: layer.id,
+      hasMidiData: !!layer.midiData,
+      instrument,
+    });
     return;
   }
 
   const fingerprint = computeRenderFingerprint(layer);
   if (layer.renderedAudioPath && layer.renderedAudioFingerprint === fingerprint) {
+    console.log('[midi-debug] stage 4: rendering skipped — cache hit, reusing existing file', {
+      layerId: layer.id,
+      renderedAudioPath: layer.renderedAudioPath,
+    });
     return;
   }
 
@@ -95,13 +104,16 @@ export async function ensureLayerRenderCached(
       renderedAudioFingerprint: fingerprint,
     });
     onLayerUpdated?.(updated);
-    console.log('[midi-render] rendered', {
+    console.log('[midi-debug] stage 4: rendered', {
       layerId: layer.id,
       instrument,
+      rendered: true,
+      renderedAudioPath,
       sampleCount: totalSamples,
+      durationSeconds: totalSamples / SAMPLE_RATE,
     });
   } catch (error) {
-    console.error('[midi-render] failed for layer', layer.id, error);
+    console.error('[midi-debug] stage 4: rendering threw', layer.id, error);
   } finally {
     useMidiProcessingStore.getState().finish(layer.id);
   }

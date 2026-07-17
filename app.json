@@ -41,7 +41,9 @@
           "microphonePermission": "Jot needs microphone access to record your musical ideas."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "onnxruntime-react-native",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

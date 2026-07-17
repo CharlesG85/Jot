@@ -1,24 +1,31 @@
-import Pitchfinder from 'pitchfinder';
-
+import { CrepePitchDetector } from '@/utils/crepe-pitch-detector';
 import type { MidiData, MidiNote } from '@/models/midi';
-
-// Chosen so pitch detection sees a Nyquist rate well above humming's
-// fundamental range (~1kHz) while keeping YIN's O(n^2) cost tractable on a
-// mobile JS thread (roughly a 16x speedup at 4x decimation).
-const DOWNSAMPLE_FACTOR = 4;
+import type { PitchDetector } from '@/utils/pitch-detector';
 
 // Pitch tracking runs on a fixed time grid, independent of tempo — a 16th
 // note at 60 BPM is 250ms, far too coarse to track humming's actual pitch
-// movement. Windows overlap (WINDOW_MS > HOP_MS) since YIN needs several
-// cycles of the lowest expected frequency to track reliably, which is
-// longer than the hop itself.
+// movement. The window length itself is dictated by whichever PitchDetector
+// is in use (see its own `frameSize`) — CREPE's is a fixed model contract,
+// not a tunable analysis parameter the way it was when this pipeline only
+// ever ran YIN.
 const HOP_MS = 15;
-const WINDOW_MS = 40;
 const YIELD_EVERY_N_FRAMES = 20;
 
-// How many consecutive frames a pitch deviation has to sustain before it's
-// treated as a real note change rather than a passing blip/vibrato wobble.
-const MIN_NOTE_MS = 60;
+// The single "musical intent" grain size: how long a deviation has to
+// persist before it's believed as real, rather than a transitional voice
+// glide or a passing dropout. Drives three related but distinct things in
+// segmentIntoRegions/quantizeNoteTiming: (1) how long a pitch-change
+// candidate — whether starting a note from silence, or deviating from an
+// already-sounding one — must stay stable before it replaces the current
+// note; (2) how long a run of silent/rejected frames must persist before an
+// already-sounding note is actually considered to have ended, rather than
+// just dipped in confidence/amplitude; (3) a final floor applied to
+// quantized note durations, merging anything that still ends up shorter
+// than this into a neighbor. Kept as one constant rather than three because
+// the user-facing concept really is singular — "how short can a real note
+// be" — and splitting it into independently-tunable knobs would let them
+// drift out of sync for no behavioral benefit asked for.
+const MIN_NOTE_DURATION_MS = 100;
 // How far (in semitones) a frame's pitch can drift from a region's own
 // recent pitch and still count as "the same note."
 const PITCH_STABILITY_SEMITONES = 0.6;
@@ -60,15 +67,29 @@ const MAX_SILENCE_THRESHOLD_FRACTION = 0.2;
 // analysis itself.
 const QUANTIZE_GRID = 4;
 
-function downsample(samples: Float32Array, factor: number): Float32Array {
-  const outLength = Math.floor(samples.length / factor);
+/**
+ * General linear-interpolation resample to an arbitrary target rate —
+ * needed because different PitchDetector implementations require different
+ * fixed sample rates (CREPE: exactly 16000Hz regardless of source; YIN:
+ * whatever it's configured for), and the ratio between a recording's actual
+ * rate and either of those is rarely an integer. No anti-aliasing filter:
+ * humming's fundamental range (~1kHz) sits far enough below either
+ * detector's Nyquist rate that this is acceptable for pitch tracking, even
+ * if it wouldn't be for general-purpose audio resampling.
+ */
+function resampleTo(samples: Float32Array, sourceRate: number, targetRate: number): Float32Array {
+  if (sourceRate === targetRate) {
+    return samples;
+  }
+  const ratio = sourceRate / targetRate;
+  const outLength = Math.max(1, Math.floor(samples.length / ratio));
   const out = new Float32Array(outLength);
   for (let i = 0; i < outLength; i++) {
-    let sum = 0;
-    for (let j = 0; j < factor; j++) {
-      sum += samples[i * factor + j];
-    }
-    out[i] = sum / factor;
+    const sourceIndex = i * ratio;
+    const indexFloor = Math.floor(sourceIndex);
+    const indexCeil = Math.min(indexFloor + 1, samples.length - 1);
+    const fraction = sourceIndex - indexFloor;
+    out[i] = samples[indexFloor] * (1 - fraction) + samples[indexCeil] * fraction;
   }
   return out;
 }
@@ -199,9 +220,29 @@ function regionRecentPitch(region: { pitches: number[] }): number {
  * Segments the smoothed contour into stable pitch regions — the boundary
  * between two notes comes from a sustained pitch change, not from silence,
  * which is what makes legato humming (connected notes, no gap between them)
- * segmentable. A pitch deviation only becomes a confirmed transition once it
- * sustains for `minNoteFrames` — anything shorter (a blip, vibrato) gets
- * absorbed back into the current region instead of splitting it.
+ * segmentable.
+ *
+ * Both directions of state change go through the same "candidate must prove
+ * itself" gate, `minNoteFrames` wide:
+ *
+ *  - Starting a note (from silence, or deviating from an already-sounding
+ *    one) never commits immediately — it grows a `candidate` region first.
+ *    If the pitch drifts back to matching the still-current note before the
+ *    candidate matures, the candidate is simply discarded (dropped on the
+ *    next iteration where the deviating pitch stops matching it and instead
+ *    matches `current` again) — this is what stops a voice's natural glide
+ *    into a note from registering as its own short note.
+ *  - Ending a note applies the same hysteresis in reverse: a run of
+ *    null/rejected frames doesn't close `current` the instant it starts —
+ *    only once the run itself reaches `minNoteFrames` is the note actually
+ *    considered over. A brief confidence/amplitude dropout shorter than
+ *    that is invisible to the output: `current.endFrame` simply jumps past
+ *    the gap once real pitch resumes, so the note's rendered duration spans
+ *    the dropout seamlessly rather than being split in two.
+ *
+ * A still-unmatured trailing candidate (recording ended mid-transition) is
+ * folded into `current` rather than dropped, so no analyzed time silently
+ * vanishes from the result — same as before this redesign.
  */
 function segmentIntoRegions(
   contour: (number | null)[],
@@ -211,6 +252,7 @@ function segmentIntoRegions(
   const regions: Region[] = [];
   let current: Region | null = null;
   let candidate: Region | null = null;
+  let silenceRun = 0;
 
   function closeCurrent() {
     if (current && current.pitches.length > 0) {
@@ -219,22 +261,59 @@ function segmentIntoRegions(
     current = null;
   }
 
+  function withinTolerance(pitch: number, region: Region): boolean {
+    return Math.abs(pitch - regionRecentPitch(region)) <= PITCH_STABILITY_SEMITONES;
+  }
+
   for (let i = 0; i < contour.length; i++) {
     const pitch = contour[i];
 
     if (pitch === null) {
-      closeCurrent();
+      // A candidate is inherently provisional — it hasn't earned enough
+      // stable evidence to be trusted yet, so a gap in the middle of
+      // forming one invalidates it rather than pausing it.
       candidate = null;
+
+      if (current === null) {
+        continue;
+      }
+      silenceRun += 1;
+      if (silenceRun >= minNoteFrames) {
+        // The silence has itself persisted long enough to be believed as a
+        // real note ending, not a dropout.
+        closeCurrent();
+        silenceRun = 0;
+      }
       continue;
     }
+
+    silenceRun = 0;
 
     if (current === null) {
-      current = { startFrame: i, endFrame: i + 1, pitches: [pitch], rmsValues: [rms[i]] };
+      // No committed note yet — this is a candidate note onset, subject to
+      // the exact same stability gate as a mid-recording pitch change (see
+      // the docstring above). Without this, the very first non-null frame
+      // of a recording used to become the note instantly, with no chance
+      // to reject the settling-in glide at a hum's start.
+      if (candidate && withinTolerance(pitch, candidate)) {
+        candidate.pitches.push(pitch);
+        candidate.rmsValues.push(rms[i]);
+        candidate.endFrame = i + 1;
+      } else {
+        candidate = { startFrame: i, endFrame: i + 1, pitches: [pitch], rmsValues: [rms[i]] };
+      }
+      if (candidate.pitches.length >= minNoteFrames) {
+        current = candidate;
+        candidate = null;
+      }
       continue;
     }
 
-    const deviation = Math.abs(pitch - regionRecentPitch(current));
-    if (deviation <= PITCH_STABILITY_SEMITONES) {
+    if (withinTolerance(pitch, current)) {
+      // Matches the ongoing note — including immediately after a tolerated
+      // silence gap, in which case this jumps `endFrame` past the gap,
+      // making the note span it seamlessly. Any candidate that was still
+      // trying to prove itself is now moot: the pitch came back home.
       current.pitches.push(pitch);
       current.rmsValues.push(rms[i]);
       current.endFrame = i + 1;
@@ -244,7 +323,7 @@ function segmentIntoRegions(
 
     // Deviates from the current region — grow or start a candidate for what
     // might be the next note, without committing to it yet.
-    if (candidate && Math.abs(pitch - regionRecentPitch(candidate)) <= PITCH_STABILITY_SEMITONES) {
+    if (candidate && withinTolerance(pitch, candidate)) {
       candidate.pitches.push(pitch);
       candidate.rmsValues.push(rms[i]);
       candidate.endFrame = i + 1;
@@ -272,6 +351,70 @@ function segmentIntoRegions(
   closeCurrent();
 
   return regions;
+}
+
+/**
+ * Final safety net, applied after quantization: segmentIntoRegions' own
+ * hysteresis already guarantees every region it emits spans at least
+ * `MIN_NOTE_DURATION_MS`, but snapping to the beat grid and the overlap
+ * trim above can still shrink a note's *quantized* duration below that
+ * floor (e.g. a short note squeezed between two grid points at a fast
+ * tempo). Anything that ends up too short here is merged into whichever
+ * *adjacent* neighbor is closer in pitch — the more likely candidate for
+ * "the real note this fragment actually belongs to" — extending that
+ * neighbor's span to cover it.
+ *
+ * "Adjacent" is deliberately checked (same tolerance as the coalescing pass
+ * above) rather than assumed: a short note can legitimately sit between two
+ * real notes separated by an actual rest, and blindly extending a neighbor
+ * to cover a short note's span would silently swallow that rest. A short
+ * note with no adjacent neighbor at all — isolated by real gaps on both
+ * sides, or the only note in the whole recording — is left as-is rather
+ * than discarded: a brief but genuine, isolated utterance losing its only
+ * note to a duration floor is a worse outcome than showing a short one.
+ */
+function enforceMinimumNoteDuration(
+  notes: MidiNote[],
+  minDurationBeats: number,
+  gridBeats: number,
+): MidiNote[] {
+  const result = notes.map((note) => ({ ...note }));
+
+  for (let i = 0; i < result.length; i++) {
+    if (result[i].durationBeats >= minDurationBeats) {
+      continue;
+    }
+    const short = result[i];
+    const prev = result[i - 1];
+    const next = result[i + 1];
+
+    const prevAdjacent =
+      prev !== undefined && short.startBeat <= prev.startBeat + prev.durationBeats + gridBeats;
+    const nextAdjacent =
+      next !== undefined && next.startBeat <= short.startBeat + short.durationBeats + gridBeats;
+
+    if (!prevAdjacent && !nextAdjacent) {
+      continue;
+    }
+
+    const mergeIntoPrev =
+      prevAdjacent &&
+      (!nextAdjacent || Math.abs(prev.pitch - short.pitch) <= Math.abs(next.pitch - short.pitch));
+
+    if (mergeIntoPrev) {
+      prev.durationBeats = short.startBeat + short.durationBeats - prev.startBeat;
+    } else {
+      next.durationBeats = next.startBeat + next.durationBeats - short.startBeat;
+      next.startBeat = short.startBeat;
+    }
+    result.splice(i, 1);
+    // Re-examine the merged-into neighbor (now at this same index, or the
+    // previous one) in case the merge itself needs re-checking — and to
+    // correctly continue the scan after the splice shifted every later index.
+    i -= 1;
+  }
+
+  return result;
 }
 
 /** Converts real (seconds-based) notes to the beat grid and snaps start/duration to it — automatic quantization, applied only after note detection is complete. */
@@ -335,7 +478,8 @@ function quantizeNoteTiming(
     }
   }
 
-  return coalesced;
+  const minDurationBeats = MIN_NOTE_DURATION_MS / 1000 / secondsPerBeat;
+  return enforceMinimumNoteDuration(coalesced, minDurationBeats, gridBeats);
 }
 
 /**
@@ -343,12 +487,22 @@ function quantizeNoteTiming(
  * src/models/midi.ts and docs/03_ROADMAP.md Stage 8.
  *
  * Pipeline, deliberately staged so pitch detection and rhythm quantization
- * never conflate: (1) continuous fixed-interval pitch tracking, independent
- * of tempo; (2) reject implausible/silent frames; (3) smooth the pitch
- * contour (octave-jump correction + median filter); (4) segment into stable
- * regions from sustained pitch change, not silence — enabling legato;
- * (5) one representative pitch per region, rounded once; (6) quantize the
- * resulting notes' timing to the beat grid last.
+ * never conflate: (1) continuous fixed-interval pitch tracking via a
+ * pluggable PitchDetector (see pitch-detector.ts), independent of tempo;
+ * (2) reject implausible/silent frames; (3) smooth the pitch contour
+ * (octave-jump correction + median filter); (4) segment into stable regions
+ * from sustained pitch change, not silence — enabling legato, and with
+ * hysteresis on both onset and ending so a voice's natural glide into/out
+ * of a note and brief confidence dropouts don't register as their own
+ * short notes (see segmentIntoRegions); (5) one representative pitch per
+ * region, rounded once; (6) quantize the resulting notes' timing to the
+ * beat grid, then enforce a final minimum-duration floor, merging anything
+ * still too short into an adjacent note (see enforceMinimumNoteDuration).
+ *
+ * Everything from stage (2) onward is detector-agnostic — it operates on
+ * `rawFrequencies`/`rms` arrays with no knowledge of which PitchDetector
+ * produced them. Defaults to CrepePitchDetector; YinPitchDetector remains
+ * available (same interface) for direct comparison.
  *
  * A prototype-grade pipeline optimized for monophonic humming, not
  * general-purpose transcription. Yields periodically so analysis doesn't
@@ -358,19 +512,27 @@ export async function convertPcmToMidi(
   samples: Float32Array,
   sampleRate: number,
   tempo: number,
+  detector: PitchDetector = new CrepePitchDetector(),
 ): Promise<MidiData> {
   if (samples.length === 0 || !Number.isFinite(tempo) || tempo <= 0) {
     return { notes: [] };
   }
 
-  const analysisSampleRate = sampleRate / DOWNSAMPLE_FACTOR;
-  const analysisSamples = downsample(samples, DOWNSAMPLE_FACTOR);
+  const analysisSampleRate = detector.sampleRate;
+  const analysisSamples = resampleTo(samples, sampleRate, analysisSampleRate);
+  console.log('[midi-debug] resampling', {
+    sourceSampleRate: sampleRate,
+    targetSampleRate: analysisSampleRate,
+    resampleRatio: sampleRate / analysisSampleRate,
+    sourceSampleCount: samples.length,
+    resampledSampleCount: analysisSamples.length,
+  });
   const hopSamples = Math.max(1, Math.round((analysisSampleRate * HOP_MS) / 1000));
-  const windowSamples = Math.max(hopSamples, Math.round((analysisSampleRate * WINDOW_MS) / 1000));
+  const windowSamples = detector.frameSize;
   const frameCount = Math.max(1, Math.ceil(analysisSamples.length / hopSamples));
-  const detectPitch = Pitchfinder.YIN({ sampleRate: analysisSampleRate });
 
   const rawFrequencies: (number | null)[] = [];
+  const confidences: number[] = [];
   const rms: number[] = [];
 
   for (let frame = 0; frame < frameCount; frame++) {
@@ -383,7 +545,9 @@ export async function convertPcmToMidi(
       window = padded;
     }
 
-    rawFrequencies.push(detectPitch(window));
+    const { frequency, confidence } = await detector.detectPitch(window);
+    rawFrequencies.push(frequency);
+    confidences.push(confidence);
     rms.push(computeRms(window));
 
     if (frame % YIELD_EVERY_N_FRAMES === YIELD_EVERY_N_FRAMES - 1) {
@@ -391,11 +555,21 @@ export async function convertPcmToMidi(
     }
   }
 
+  console.log('[midi-debug] stage 1: detector output', {
+    detector: detector.constructor.name,
+    frameCount: rawFrequencies.length,
+    avgConfidence: confidences.reduce((sum, c) => sum + c, 0) / (confidences.length || 1),
+    first20: rawFrequencies
+      .slice(0, 20)
+      .map((frequency, i) => ({ frequency, confidence: confidences[i] })),
+  });
+
   let maxRms = 0;
   for (const value of rms) {
     maxRms = Math.max(maxRms, value);
   }
   if (maxRms <= 0) {
+    console.log('[midi-debug] bailing out: maxRms <= 0 (no audio energy at all)');
     return { notes: [] };
   }
 
@@ -412,11 +586,26 @@ export async function convertPcmToMidi(
     return pitch;
   });
 
+  console.log('[midi-debug] intermediate: silence/plausibility gate', {
+    maxRms,
+    silenceThreshold,
+    framesSurvivingGate: continuousPitches.filter((p) => p !== null).length,
+    totalFrames: continuousPitches.length,
+  });
+
   const octaveCorrected = correctIsolatedOctaveJumps(continuousPitches);
   const smoothed = medianFilterContour(octaveCorrected);
 
-  const minNoteFrames = Math.max(1, Math.ceil(MIN_NOTE_MS / HOP_MS));
+  const minNoteFrames = Math.max(1, Math.ceil(MIN_NOTE_DURATION_MS / HOP_MS));
   const regions = segmentIntoRegions(smoothed, rms, minNoteFrames);
+
+  console.log('[midi-debug] stage 2: segmentation', {
+    regionCount: regions.length,
+    regions: regions.map((region) => ({
+      pitch: Math.round(median(region.pitches)),
+      durationMs: ((region.endFrame - region.startFrame) * hopSamples * 1000) / analysisSampleRate,
+    })),
+  });
 
   const rawNotes = regions.map((region) => {
     const representativePitch = Math.round(median(region.pitches));
@@ -431,5 +620,11 @@ export async function convertPcmToMidi(
     };
   });
 
-  return { notes: quantizeNoteTiming(rawNotes, tempo) };
+  const notes = quantizeNoteTiming(rawNotes, tempo);
+  console.log('[midi-debug] stage 3: quantization', {
+    noteCount: notes.length,
+    notes,
+  });
+
+  return { notes };
 }

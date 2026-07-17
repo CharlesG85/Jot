@@ -1,4 +1,4 @@
-import { createAudioPlayer, type AudioSample } from 'expo-audio';
+import { createAudioPlayer, RecordingPresets, type AudioSample } from 'expo-audio';
 
 import { useMidiProcessingStore } from '@/features/idea-workspace/midi-processing-store';
 import type { Idea } from '@/models/idea';
@@ -71,10 +71,15 @@ function capturePcmSamples(audioPath: string): Promise<PcmCapture> {
         samples.set(chunk, offset);
         offset += chunk.length;
       }
-      // The tap doesn't report a sample rate directly — derived from what
-      // was actually captured against the player's own reported duration,
-      // rather than assumed.
-      const sampleRate = player.duration > 0 ? totalSamples / player.duration : 0;
+      // The tap doesn't report a sample rate directly, and it can't be
+      // reliably derived from playback timing either — totalSamples /
+      // player.duration was tried and measured (on a real device) to be off
+      // by ~5.5%, enough on its own to shift a detected pitch by nearly a
+      // full semitone after rounding. Every recording in this app is always
+      // made with RecordingPresets.HIGH_QUALITY, a fixed, known format — the
+      // sample rate doesn't need to be estimated at all when it's already
+      // known at record time.
+      const sampleRate = RecordingPresets.HIGH_QUALITY.sampleRate;
       resolve({ samples, sampleRate });
     }
 
