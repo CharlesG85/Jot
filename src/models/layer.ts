@@ -8,6 +8,9 @@ import type { InstrumentId } from '@/models/instrument';
 
 export type EffectsIntensity = 'off' | 'low' | 'medium' | 'high';
 
+/** How finely a Layer's detected notes are snapped to the beat grid — see utils/quantize-grid.ts. */
+export type QuantizeGrid = 'half' | 'one' | 'two' | 'bar';
+
 export interface Layer {
   id: string;
   ideaId: string;
@@ -36,6 +39,15 @@ export interface Layer {
    * this; it's only played back internally (muted) to capture PCM samples.
    */
   midiData: string | null;
+  /**
+   * A JSON-serialized `RawMidiData` (see src/models/midi.ts) — the same
+   * pitch-detection pass's notes *before* quantization, in seconds rather
+   * than beats. Kept alongside `midiData` so changing `quantization` can
+   * cheaply re-snap this recording's already-detected notes to a new grid
+   * without re-running pitch detection. Null until analyzed, same as
+   * `midiData`.
+   */
+  rawMidiData: string | null;
   /** Whether playback should use the rendered instrument audio instead of the original recording (Stage 9). */
   midiEnabled: boolean;
   /** Path to the cached rendered instrument audio — derived, regenerable, never authoritative. See midi-render-service.ts. */
@@ -49,6 +61,8 @@ export interface Layer {
   renderedAudioFingerprint: string | null;
   /** UI-only for now — not yet applied to rendered audio. See docs/03_ROADMAP.md Stage 9. */
   effectsIntensity: EffectsIntensity;
+  /** How finely detected notes snap to the beat grid — see utils/quantize-grid.ts. Defaults to 'one' (1 beat). */
+  quantization: QuantizeGrid;
   /** 0-based order within the parent Idea's Layer stack. */
   position: number;
   createdAt: number;

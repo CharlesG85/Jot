@@ -24,3 +24,21 @@ export interface MidiNote {
 export interface MidiData {
   notes: MidiNote[];
 }
+
+/**
+ * A detected note *before* quantization — real-time timing (seconds from
+ * the recording's start), not yet snapped to any beat grid. Produced by
+ * detectNotesFromPcm (pitch-to-midi.ts) and persisted as `Layer.rawMidiData`
+ * so quantization can be redone cheaply (no pitch re-detection) whenever a
+ * Layer's `quantization` setting changes.
+ */
+export interface RawMidiNote {
+  pitch: number;
+  startSeconds: number;
+  durationSeconds: number;
+  velocity: number;
+}
+
+export interface RawMidiData {
+  notes: RawMidiNote[];
+}

@@ -9,7 +9,7 @@ import {
   type TimeSignature,
 } from '@/models/idea';
 import type { InstrumentId } from '@/models/instrument';
-import type { EffectsIntensity, Layer } from '@/models/layer';
+import type { EffectsIntensity, Layer, QuantizeGrid } from '@/models/layer';
 import type { StorageService } from '@/services/storage-service';
 import { getDatabase } from '@/storage/database';
 import { recordingsDirectory, rendersDirectory } from '@/storage/file-system';
@@ -39,10 +39,12 @@ interface LayerRow {
   duration_seconds: number;
   loop_length_bars: number;
   midi_data: string | null;
+  raw_midi_data: string | null;
   midi_enabled: number;
   rendered_audio_path: string | null;
   rendered_audio_fingerprint: string | null;
   effects_intensity: string;
+  quantization: string;
   position: number;
   created_at: number;
   updated_at: number;
@@ -75,10 +77,12 @@ function mapLayer(row: LayerRow): Layer {
     durationSeconds: row.duration_seconds,
     loopLengthBars: row.loop_length_bars,
     midiData: row.midi_data,
+    rawMidiData: row.raw_midi_data,
     midiEnabled: row.midi_enabled === 1,
     renderedAudioPath: row.rendered_audio_path,
     renderedAudioFingerprint: row.rendered_audio_fingerprint,
     effectsIntensity: row.effects_intensity as EffectsIntensity,
+    quantization: row.quantization as QuantizeGrid,
     position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -199,17 +203,19 @@ class SqliteStorageService implements StorageService {
       durationSeconds: 0,
       loopLengthBars: 1,
       midiData: null,
+      rawMidiData: null,
       midiEnabled: false,
       renderedAudioPath: null,
       renderedAudioFingerprint: null,
       effectsIntensity: 'off',
+      quantization: 'one',
       position: nextPosition?.nextPosition ?? 0,
       createdAt: now,
       updatedAt: now,
     };
     await db.runAsync(
-      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, duration_seconds, loop_length_bars, midi_data, midi_enabled, rendered_audio_path, rendered_audio_fingerprint, effects_intensity, position, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO layers (id, idea_id, name, instrument, muted, solo, volume, audio_path, duration_seconds, loop_length_bars, midi_data, raw_midi_data, midi_enabled, rendered_audio_path, rendered_audio_fingerprint, effects_intensity, quantization, position, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       layer.id,
       layer.ideaId,
       layer.name,
@@ -221,10 +227,12 @@ class SqliteStorageService implements StorageService {
       layer.durationSeconds,
       layer.loopLengthBars,
       layer.midiData,
+      layer.rawMidiData,
       layer.midiEnabled ? 1 : 0,
       layer.renderedAudioPath,
       layer.renderedAudioFingerprint,
       layer.effectsIntensity,
+      layer.quantization,
       layer.position,
       layer.createdAt,
       layer.updatedAt,
@@ -244,7 +252,7 @@ class SqliteStorageService implements StorageService {
     const updated: Layer = { ...mapLayer(existing), ...changes, updatedAt: Date.now() };
     await db.runAsync(
       `UPDATE layers
-       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, duration_seconds = ?, loop_length_bars = ?, midi_data = ?, midi_enabled = ?, rendered_audio_path = ?, rendered_audio_fingerprint = ?, effects_intensity = ?, position = ?, updated_at = ?
+       SET name = ?, instrument = ?, muted = ?, solo = ?, volume = ?, audio_path = ?, duration_seconds = ?, loop_length_bars = ?, midi_data = ?, raw_midi_data = ?, midi_enabled = ?, rendered_audio_path = ?, rendered_audio_fingerprint = ?, effects_intensity = ?, quantization = ?, position = ?, updated_at = ?
        WHERE id = ?`,
       updated.name,
       updated.instrument,
@@ -255,10 +263,12 @@ class SqliteStorageService implements StorageService {
       updated.durationSeconds,
       updated.loopLengthBars,
       updated.midiData,
+      updated.rawMidiData,
       updated.midiEnabled ? 1 : 0,
       updated.renderedAudioPath,
       updated.renderedAudioFingerprint,
       updated.effectsIntensity,
+      updated.quantization,
       updated.position,
       updated.updatedAt,
       id,

@@ -188,17 +188,17 @@ Low
 ## Remaining Instrument Palette
 
 Stage 9 shipped with a single synthesized voice (Synth) to prove out the
-render/cache architecture. The rest of the roadmap's originally-listed
-instruments were deliberately deferred, not dropped:
+render/cache architecture. Piano, Electric Piano, and Pad were added later as
+new `InstrumentDefinition`s (src/models/instrument.ts), with a tap-to-open
+picker panel (InstrumentSelector) replacing the segmented control so the
+list can keep growing without a UI redesign. Still deferred, not dropped:
 
-* Piano
 * Guitar
 * Bass
 * Strings
-* Pads
 
-Each is a new `InstrumentDefinition` (src/models/instrument.ts) — the
-Renderer itself is already generic and needs no changes to support them.
+Each is a new `InstrumentDefinition` — the Renderer itself is already
+generic and needs no changes to support them.
 
 Priority:
 Medium

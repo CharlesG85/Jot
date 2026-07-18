@@ -15,8 +15,9 @@ import { EditableLayerName } from '@/features/idea-workspace/editable-layer-name
 import { EffectsIntensitySelector } from '@/features/idea-workspace/effects-intensity-selector';
 import { InstrumentSelector } from '@/features/idea-workspace/instrument-selector';
 import { useLayerProcessingPhase } from '@/features/idea-workspace/midi-processing-store';
+import { QuantizeGridSelector } from '@/features/idea-workspace/quantize-grid-selector';
 import { useTheme } from '@/hooks/use-theme';
-import type { EffectsIntensity, Layer } from '@/models/layer';
+import type { EffectsIntensity, Layer, QuantizeGrid } from '@/models/layer';
 import type { InstrumentId } from '@/models/instrument';
 import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
 import { formatBars } from '@/utils/format-bar-count';
@@ -35,6 +36,7 @@ interface LayerCardProps {
   onChangeInstrument: (instrument: InstrumentId) => void;
   onChangeVolume: (volume: number) => void;
   onChangeEffectsIntensity: (intensity: EffectsIntensity) => void;
+  onChangeQuantization: (grid: QuantizeGrid) => void;
 }
 
 export function LayerCard({
@@ -47,6 +49,7 @@ export function LayerCard({
   onChangeInstrument,
   onChangeVolume,
   onChangeEffectsIntensity,
+  onChangeQuantization,
 }: LayerCardProps) {
   logRender('LayerCard');
   const theme = useTheme();
@@ -101,12 +104,15 @@ export function LayerCard({
     return player;
   }
 
-  function handlePlayPause() {
+  function handlePlayStop() {
     if (isPlaying) {
       const activePlayer = playerRef.current;
       if (activePlayer) {
-        logAudioLifecycle('player', 'pause', activePlayer.id, `layer-preview:${layer.id}`);
+        logAudioLifecycle('player', 'stop', activePlayer.id, `layer-preview:${layer.id}`);
         activePlayer.pause();
+        // Stop, not pause — the next press starts the clip over from the
+        // beginning rather than resuming where this one left off.
+        activePlayer.seekTo(0);
       }
       setIsPlaying(false);
       return;
@@ -171,12 +177,12 @@ export function LayerCard({
           style={styles.row}
         >
           <Pressable
-            accessibilityLabel={isPlaying ? 'Pause' : 'Play'}
-            onPress={handlePlayPause}
+            accessibilityLabel={isPlaying ? 'Stop' : 'Play'}
+            onPress={handlePlayStop}
             style={[styles.playButton, { backgroundColor: theme.accent }]}
           >
             <SymbolView
-              name={isPlaying ? 'pause.fill' : 'play.fill'}
+              name={isPlaying ? 'stop.fill' : 'play.fill'}
               tintColor="#ffffff"
               size={16}
             />
@@ -225,9 +231,9 @@ export function LayerCard({
         {isExpanded && (
           <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.expandedContent}>
             <View style={styles.expandedRow}>
-              <ThemedText style={Typography.body}>Use MIDI</ThemedText>
+              <ThemedText style={Typography.body}>Use Instrument</ThemedText>
               <Switch
-                accessibilityLabel="Use MIDI"
+                accessibilityLabel="Use Instrument"
                 value={layer.midiEnabled}
                 onValueChange={onToggleMidi}
                 disabled={midiSwitchDisabled}
@@ -246,6 +252,15 @@ export function LayerCard({
                   Instrument
                 </ThemedText>
                 <InstrumentSelector value={layer.instrument} onChange={onChangeInstrument} />
+              </View>
+            )}
+
+            {layer.midiEnabled && layer.instrument && (
+              <View style={styles.expandedSection}>
+                <ThemedText style={styles.expandedLabel} themeColor="textSecondary">
+                  Snap To
+                </ThemedText>
+                <QuantizeGridSelector value={layer.quantization} onChange={onChangeQuantization} />
               </View>
             )}
 

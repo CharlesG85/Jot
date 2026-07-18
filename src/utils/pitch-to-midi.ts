@@ -1,5 +1,5 @@
 import { CrepePitchDetector } from '@/utils/crepe-pitch-detector';
-import type { MidiData, MidiNote } from '@/models/midi';
+import type { MidiNote, RawMidiNote } from '@/models/midi';
 import type { PitchDetector } from '@/utils/pitch-detector';
 
 // Pitch tracking runs on a fixed time grid, independent of tempo — a 16th
@@ -61,11 +61,6 @@ const ABSOLUTE_SILENCE_FLOOR = 0.001;
 // exceeds this fraction of the recording's own peak RMS — see
 // computeAdaptiveSilenceThreshold for why this matters.
 const MAX_SILENCE_THRESHOLD_FRACTION = 0.2;
-
-// Timing quantization grid — 4 = 16th notes. Applied only after note
-// detection is complete (see quantizeNoteTiming), never during pitch
-// analysis itself.
-const QUANTIZE_GRID = 4;
 
 /**
  * General linear-interpolation resample to an arbitrary target rate —
@@ -417,13 +412,22 @@ function enforceMinimumNoteDuration(
   return result;
 }
 
-/** Converts real (seconds-based) notes to the beat grid and snaps start/duration to it — automatic quantization, applied only after note detection is complete. */
-function quantizeNoteTiming(
-  notes: { pitch: number; startSeconds: number; durationSeconds: number; velocity: number }[],
+/**
+ * Converts real (seconds-based) notes to the beat grid and snaps
+ * start/duration to it — automatic quantization, applied only after note
+ * detection is complete. `gridBeats` is caller-supplied (see
+ * utils/quantize-grid.ts) rather than fixed, so re-quantizing an already-
+ * detected recording to a different grid (a Layer's `quantization` setting
+ * changing) never needs to re-run pitch detection — this function is pure
+ * and cheap, safe to call again anytime with the same `rawMidiData` and a
+ * different `gridBeats`.
+ */
+export function quantizeNoteTiming(
+  notes: RawMidiNote[],
   tempo: number,
+  gridBeats: number,
 ): MidiNote[] {
   const secondsPerBeat = 60 / tempo;
-  const gridBeats = 1 / QUANTIZE_GRID;
 
   const quantized = notes
     .map((note) => {
@@ -479,12 +483,27 @@ function quantizeNoteTiming(
   }
 
   const minDurationBeats = MIN_NOTE_DURATION_MS / 1000 / secondsPerBeat;
-  return enforceMinimumNoteDuration(coalesced, minDurationBeats, gridBeats);
+  const result = enforceMinimumNoteDuration(coalesced, minDurationBeats, gridBeats);
+
+  console.log('[midi-debug] stage 3: quantization', {
+    gridBeats,
+    noteCount: result.length,
+    notes: result,
+  });
+
+  return result;
 }
 
 /**
- * Converts a mono PCM buffer into an internal MIDI representation — see
- * src/models/midi.ts and docs/03_ROADMAP.md Stage 8.
+ * Detects notes from a mono PCM buffer — see src/models/midi.ts and
+ * docs/03_ROADMAP.md Stage 8. Returns raw, real-time-based notes
+ * (`RawMidiNote`, seconds not beats) — quantization to a beat grid is
+ * deliberately not part of this function at all (see quantizeNoteTiming);
+ * pitch detection is by far the expensive part of this pipeline (it's the
+ * one stage that needs the CREPE model), while quantization is pure,
+ * tempo/grid-dependent arithmetic — keeping them fully separate is what
+ * lets a Layer's `quantization` setting change be applied cheaply, from the
+ * already-detected `rawMidiData`, without ever re-running detection.
  *
  * Pipeline, deliberately staged so pitch detection and rhythm quantization
  * never conflate: (1) continuous fixed-interval pitch tracking via a
@@ -495,9 +514,7 @@ function quantizeNoteTiming(
  * hysteresis on both onset and ending so a voice's natural glide into/out
  * of a note and brief confidence dropouts don't register as their own
  * short notes (see segmentIntoRegions); (5) one representative pitch per
- * region, rounded once; (6) quantize the resulting notes' timing to the
- * beat grid, then enforce a final minimum-duration floor, merging anything
- * still too short into an adjacent note (see enforceMinimumNoteDuration).
+ * region, rounded once.
  *
  * Everything from stage (2) onward is detector-agnostic — it operates on
  * `rawFrequencies`/`rms` arrays with no knowledge of which PitchDetector
@@ -508,14 +525,13 @@ function quantizeNoteTiming(
  * general-purpose transcription. Yields periodically so analysis doesn't
  * block the JS thread for its full duration in one synchronous stretch.
  */
-export async function convertPcmToMidi(
+export async function detectNotesFromPcm(
   samples: Float32Array,
   sampleRate: number,
-  tempo: number,
   detector: PitchDetector = new CrepePitchDetector(),
-): Promise<MidiData> {
-  if (samples.length === 0 || !Number.isFinite(tempo) || tempo <= 0) {
-    return { notes: [] };
+): Promise<RawMidiNote[]> {
+  if (samples.length === 0) {
+    return [];
   }
 
   const analysisSampleRate = detector.sampleRate;
@@ -570,7 +586,7 @@ export async function convertPcmToMidi(
   }
   if (maxRms <= 0) {
     console.log('[midi-debug] bailing out: maxRms <= 0 (no audio energy at all)');
-    return { notes: [] };
+    return [];
   }
 
   const silenceThreshold = computeAdaptiveSilenceThreshold(rms, maxRms);
@@ -620,11 +636,5 @@ export async function convertPcmToMidi(
     };
   });
 
-  const notes = quantizeNoteTiming(rawNotes, tempo);
-  console.log('[midi-debug] stage 3: quantization', {
-    noteCount: notes.length,
-    notes,
-  });
-
-  return { notes };
+  return rawNotes;
 }

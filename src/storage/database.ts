@@ -54,6 +54,7 @@ export function getDatabase(): Promise<SQLiteDatabase> {
       await migrateIdeaMetronomeColumn(db);
       await migrateLayerLoopMetadataColumns(db);
       await migrateLayerRenderColumns(db);
+      await migrateLayerQuantizationColumns(db);
       return db;
     });
   }
@@ -144,5 +145,27 @@ async function migrateLayerRenderColumns(db: SQLiteDatabase): Promise<void> {
     ALTER TABLE layers ADD COLUMN rendered_audio_path TEXT;
     ALTER TABLE layers ADD COLUMN rendered_audio_fingerprint TEXT;
     ALTER TABLE layers ADD COLUMN effects_intensity TEXT NOT NULL DEFAULT 'off';
+  `);
+}
+
+/**
+ * Installs from before the "Snap To" quantization control need the
+ * pre-quantization note data (`raw_midi_data`) and the per-Layer grid
+ * choice (`quantization`) added. `raw_midi_data` starts null for existing
+ * Layers — their `midi_data` was already quantized at record time with the
+ * old fixed grid and can't be un-quantized, so changing `quantization` on
+ * an existing Layer has no effect until it's re-recorded (same limitation
+ * every prior MIDI-pipeline change has had for pre-existing Layers).
+ */
+async function migrateLayerQuantizationColumns(db: SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>('PRAGMA table_info(layers)');
+  const hasQuantization = columns.some((column) => column.name === 'quantization');
+  if (hasQuantization) {
+    return;
+  }
+
+  await db.execAsync(`
+    ALTER TABLE layers ADD COLUMN raw_midi_data TEXT;
+    ALTER TABLE layers ADD COLUMN quantization TEXT NOT NULL DEFAULT 'one';
   `);
 }

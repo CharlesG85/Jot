@@ -29,7 +29,8 @@ import {
   DEFAULT_TIME_SIGNATURE,
 } from '@/models/idea';
 import type { InstrumentId } from '@/models/instrument';
-import type { EffectsIntensity, Layer } from '@/models/layer';
+import type { EffectsIntensity, Layer, QuantizeGrid } from '@/models/layer';
+import { requantizeLayerNotes } from '@/services/midi-analysis-service';
 import { ensureLayerRenderCached } from '@/services/midi-render-service';
 import { storageService } from '@/services/sqlite-storage-service';
 import { getBarDurationSeconds } from '@/utils/loop-duration';
@@ -167,6 +168,19 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
     });
   }
 
+  async function handleChangeQuantization(layerId: string, quantization: QuantizeGrid) {
+    const updated = await storageService.updateLayer(layerId, { quantization });
+    syncLayer(updated);
+    // Cheap — re-derives midiData from the already-detected rawMidiData, no
+    // pitch re-detection. ensureLayerRenderCached picks up the midiData
+    // change via its own fingerprint check, same as any other setting.
+    const requantized = await requantizeLayerNotes(updated, ideaTiming);
+    syncLayer(requantized);
+    ensureLayerRenderCached(requantized, ideaTiming, syncLayer).catch((error) => {
+      console.error('[midi-render] unexpected failure', error);
+    });
+  }
+
   async function handleReorderLayers(orderedLayers: Layer[]) {
     setLayers(orderedLayers);
     await storageService.reorderLayers(
@@ -264,6 +278,7 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
               onChangeInstrument={handleChangeInstrument}
               onChangeVolume={handleChangeVolume}
               onChangeEffectsIntensity={handleChangeEffectsIntensity}
+              onChangeQuantization={handleChangeQuantization}
             />
           )}
         </Animated.View>

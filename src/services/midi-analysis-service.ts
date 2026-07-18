@@ -3,9 +3,11 @@ import { createAudioPlayer, RecordingPresets, type AudioSample } from 'expo-audi
 import { useMidiProcessingStore } from '@/features/idea-workspace/midi-processing-store';
 import type { Idea } from '@/models/idea';
 import type { Layer } from '@/models/layer';
+import type { RawMidiData, RawMidiNote } from '@/models/midi';
 import { storageService } from '@/services/sqlite-storage-service';
 import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
-import { convertPcmToMidi } from '@/utils/pitch-to-midi';
+import { detectNotesFromPcm, quantizeNoteTiming } from '@/utils/pitch-to-midi';
+import { quantizeGridToBeats } from '@/utils/quantize-grid';
 
 // Generous relative to the longest possible recording (8 bars) — a backstop
 // against a stalled/never-finishing player leaking a capture forever, not a
@@ -137,6 +139,13 @@ function capturePcmSamples(audioPath: string): Promise<PcmCapture> {
  * never modified; it's only played back internally, muted, to capture PCM
  * for analysis — see capturePcmSamples above.
  *
+ * Persists both the raw (pre-quantization) notes and an initial quantized
+ * `midiData`, quantized using the Layer's *current* `quantization` setting
+ * (whatever it was at the time this ran — 'one' for a freshly created
+ * Layer, since that's the model's default). The raw notes are what make
+ * `requantizeLayerNotes` below possible: re-quantizing to a different grid
+ * later never needs to repeat this — by far the most expensive — step.
+ *
  * This only writes the result to storage — it has no way to know whether
  * some component's in-memory copy of this Layer needs updating too, since
  * it runs as a plain background call, not a hook. `onLayerUpdated`, if
@@ -146,7 +155,7 @@ function capturePcmSamples(audioPath: string): Promise<PcmCapture> {
  */
 export async function convertLayerToMidi(
   layer: Layer,
-  idea: Pick<Idea, 'tempo'>,
+  idea: Pick<Idea, 'tempo' | 'timeSignature'>,
   onLayerUpdated?: (layer: Layer) => void,
 ): Promise<void> {
   if (!layer.audioPath) {
@@ -161,19 +170,48 @@ export async function convertLayerToMidi(
       return;
     }
 
-    const midiData = await convertPcmToMidi(samples, sampleRate, idea.tempo);
+    const rawNotes = await detectNotesFromPcm(samples, sampleRate);
+    const gridBeats = quantizeGridToBeats(layer.quantization, idea);
+    const notes = quantizeNoteTiming(rawNotes, idea.tempo, gridBeats);
+    const rawMidiData: RawMidiData = { notes: rawNotes };
+
     const updated = await storageService.updateLayer(layer.id, {
-      midiData: JSON.stringify(midiData),
+      rawMidiData: JSON.stringify(rawMidiData),
+      midiData: JSON.stringify({ notes }),
     });
     onLayerUpdated?.(updated);
     console.log('[midi-analysis] converted', {
       layerId: layer.id,
-      noteCount: midiData.notes.length,
-      notes: midiData.notes,
+      noteCount: notes.length,
+      notes,
     });
   } catch (error) {
     console.error('[midi-analysis] failed for layer', layer.id, error);
   } finally {
     useMidiProcessingStore.getState().finish(layer.id);
   }
+}
+
+/**
+ * Re-quantizes a Layer's already-detected notes (`rawMidiData`) to its
+ * current `quantization` setting and persists the result — cheap, pure
+ * arithmetic, no pitch re-detection. Called whenever `quantization` changes
+ * after a Layer has already been analyzed. A Layer with no `rawMidiData`
+ * yet (never successfully analyzed, or analyzed before this field existed)
+ * is returned unchanged — there's nothing to re-quantize from.
+ */
+export async function requantizeLayerNotes(
+  layer: Layer,
+  idea: Pick<Idea, 'tempo' | 'timeSignature'>,
+): Promise<Layer> {
+  if (!layer.rawMidiData) {
+    return layer;
+  }
+
+  const rawMidiData: RawMidiData = JSON.parse(layer.rawMidiData);
+  const rawNotes: RawMidiNote[] = rawMidiData.notes;
+  const gridBeats = quantizeGridToBeats(layer.quantization, idea);
+  const notes = quantizeNoteTiming(rawNotes, idea.tempo, gridBeats);
+
+  return storageService.updateLayer(layer.id, { midiData: JSON.stringify({ notes }) });
 }

@@ -15,7 +15,7 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { LayerCard } from '@/features/idea-workspace/layer-card';
 import { useTheme } from '@/hooks/use-theme';
 import type { InstrumentId } from '@/models/instrument';
-import type { EffectsIntensity, Layer } from '@/models/layer';
+import type { EffectsIntensity, Layer, QuantizeGrid } from '@/models/layer';
 import { logRender } from '@/utils/render-logger';
 
 const ROW_HEIGHT = 56;
@@ -33,6 +33,7 @@ interface ReorderableLayerListProps {
   onChangeInstrument: (layerId: string, instrument: InstrumentId) => void;
   onChangeVolume: (layerId: string, volume: number) => void;
   onChangeEffectsIntensity: (layerId: string, intensity: EffectsIntensity) => void;
+  onChangeQuantization: (layerId: string, grid: QuantizeGrid) => void;
 }
 
 /**
@@ -52,6 +53,7 @@ export function ReorderableLayerList({
   onChangeInstrument,
   onChangeVolume,
   onChangeEffectsIntensity,
+  onChangeQuantization,
 }: ReorderableLayerListProps) {
   logRender('ReorderableLayerList');
   // Shared across every row so each one can react to where the dragged row
@@ -81,6 +83,7 @@ export function ReorderableLayerList({
             onChangeInstrument={(instrument) => onChangeInstrument(layer.id, instrument)}
             onChangeVolume={(volume) => onChangeVolume(layer.id, volume)}
             onChangeEffectsIntensity={(intensity) => onChangeEffectsIntensity(layer.id, intensity)}
+            onChangeQuantization={(grid) => onChangeQuantization(layer.id, grid)}
           />
         ))}
       </View>
