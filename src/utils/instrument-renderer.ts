@@ -1,4 +1,4 @@
-import type { InstrumentDefinition } from '@/models/instrument';
+import type { SynthInstrumentDefinition } from '@/models/instrument';
 import type { MidiData } from '@/models/midi';
 
 /** Inverse of pitch-to-midi.ts's frequencyToMidiPitch. */
@@ -9,17 +9,31 @@ export function midiPitchToFrequency(pitch: number): number {
 function envelopeGainAt(
   sampleIndex: number,
   durationSamples: number,
-  envelope: InstrumentDefinition['envelope'],
+  envelope: SynthInstrumentDefinition['envelope'],
   sampleRate: number,
 ): number {
-  const attackSamples = envelope.attackSeconds * sampleRate;
-  const decaySamples = envelope.decaySeconds * sampleRate;
-  const releaseSamples = envelope.releaseSeconds * sampleRate;
-  // Release never starts before decay has finished, even for a note shorter
-  // than attack+decay+release combined — the note may not fully release
-  // within its own bounds in that case, but this avoids a decay phase that
-  // never completes, which is the worse artifact of the two.
-  const releaseStart = Math.max(durationSamples - releaseSamples, attackSamples + decaySamples);
+  const attackSamplesRaw = envelope.attackSeconds * sampleRate;
+  const decaySamplesRaw = envelope.decaySeconds * sampleRate;
+  const releaseSamplesRaw = envelope.releaseSeconds * sampleRate;
+  const totalRaw = attackSamplesRaw + decaySamplesRaw + releaseSamplesRaw;
+
+  // A note shorter than its instrument's full attack+decay+release (a real,
+  // common case — automatic quantization and the minimum-note-duration
+  // floor both operate on musical/rhythmic grounds, with no awareness of
+  // any particular instrument's envelope timing) has all three phases
+  // scaled down by the same ratio here, rather than truncating release —
+  // release not completing within the note's own bounds leaves a nonzero
+  // gain right at the cutoff, an audible click, which scaling avoids
+  // unconditionally: gain always reaches exactly 0 by the note's last
+  // sample, however short. Scaling all three phases together (not just
+  // release) rather than prioritizing release above attack/decay also
+  // keeps a — compressed, but present — attack ramp for very short notes,
+  // instead of trading a click at the end for a discontinuity at the start.
+  const scale = totalRaw > durationSamples && totalRaw > 0 ? durationSamples / totalRaw : 1;
+  const attackSamples = attackSamplesRaw * scale;
+  const decaySamples = decaySamplesRaw * scale;
+  const releaseSamples = releaseSamplesRaw * scale;
+  const releaseStart = durationSamples - releaseSamples;
 
   if (sampleIndex < attackSamples) {
     return attackSamples > 0 ? sampleIndex / attackSamples : 1;
@@ -48,7 +62,7 @@ function synthesizeNote(
   frequency: number,
   velocityGain: number,
   sampleRate: number,
-  definition: InstrumentDefinition,
+  definition: SynthInstrumentDefinition,
 ): void {
   if (durationSamples <= 0) {
     return;
@@ -76,8 +90,13 @@ function synthesizeNote(
   }
 }
 
-/** Scales the buffer down (never up) so its peak never exceeds 1 — a safety net, not a loudness normalizer. */
-function softClip(buffer: Float32Array): void {
+/**
+ * Scales the buffer down (never up) so its peak never exceeds 1 — a safety
+ * net, not a loudness normalizer. Exported for reuse by
+ * soundfont-renderer.ts, which needs the exact same safety net after
+ * mixing possibly-many simultaneous sampled notes.
+ */
+export function softClip(buffer: Float32Array): void {
   let peak = 0;
   for (let i = 0; i < buffer.length; i++) {
     peak = Math.max(peak, Math.abs(buffer[i]));
@@ -112,7 +131,7 @@ function softClip(buffer: Float32Array): void {
  */
 export async function* renderMidiToPcm(
   midiData: MidiData,
-  definition: InstrumentDefinition,
+  definition: SynthInstrumentDefinition,
   sampleRate: number,
   tempo: number,
   durationSeconds: number,

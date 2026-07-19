@@ -7,7 +7,16 @@ import type { RecordingPhase } from '@/services/audio-service';
 interface UseTransportProgressOptions {
   phase: RecordingPhase;
   loopDurationSeconds: number;
+  beatDurationSeconds: number;
   getIdeaPlaybackProgress: () => number | null;
+}
+
+export interface TransportProgressResult {
+  progress: SharedValue<number>;
+  /** See RecordingTransportResult.currentBeat — only recording produces beats today. */
+  recordingBeat: SharedValue<number>;
+  /** See RecordingTransportResult.beatPhase — only recording produces beats today. */
+  recordingBeatPhase: SharedValue<number>;
 }
 
 /**
@@ -35,10 +44,21 @@ interface UseTransportProgressOptions {
 export function useTransportProgress({
   phase,
   loopDurationSeconds,
+  beatDurationSeconds,
   getIdeaPlaybackProgress,
-}: UseTransportProgressOptions): SharedValue<number> {
-  const recordingProgress = useRecordingTransport(phase === 'recording', loopDurationSeconds);
+}: UseTransportProgressOptions): TransportProgressResult {
+  const recording = useRecordingTransport(
+    phase === 'recording',
+    loopDurationSeconds,
+    beatDurationSeconds,
+  );
   const playbackProgress = usePlaybackTransport(getIdeaPlaybackProgress, loopDurationSeconds);
 
-  return useDerivedValue(() => recordingProgress.value + playbackProgress.value);
+  const progress = useDerivedValue(() => recording.progress.value + playbackProgress.value);
+
+  return {
+    progress,
+    recordingBeat: recording.currentBeat,
+    recordingBeatPhase: recording.beatPhase,
+  };
 }

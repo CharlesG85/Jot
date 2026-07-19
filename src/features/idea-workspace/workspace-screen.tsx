@@ -8,8 +8,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Radius, Spacing, Typography } from '@/constants/theme';
+import { BeatPulseGlow } from '@/features/idea-workspace/beat-pulse-glow';
 import { EditableHeaderTitle } from '@/features/idea-workspace/editable-header-title';
 import { LyricsEditor } from '@/features/idea-workspace/lyrics-editor';
+import { useMidiProcessingStore } from '@/features/idea-workspace/midi-processing-store';
 import { PlayIdeaButton } from '@/features/idea-workspace/play-idea-button';
 import {
   BUTTON_SIZE as RECORD_BUTTON_SIZE,
@@ -20,6 +22,7 @@ import { SettingsButton } from '@/features/idea-workspace/settings-button';
 import { Timeline } from '@/features/idea-workspace/timeline';
 import { useIdeaPlayback } from '@/features/idea-workspace/use-idea-playback';
 import { useLayerRecorder } from '@/features/idea-workspace/use-layer-recorder';
+import { useTransportProgress } from '@/features/idea-workspace/use-transport-progress';
 import { useIdeasStore } from '@/features/ideas/store';
 import { useTheme } from '@/hooks/use-theme';
 import {
@@ -33,7 +36,7 @@ import type { EffectsIntensity, Layer, QuantizeGrid } from '@/models/layer';
 import { requantizeLayerNotes } from '@/services/midi-analysis-service';
 import { ensureLayerRenderCached } from '@/services/midi-render-service';
 import { storageService } from '@/services/sqlite-storage-service';
-import { getBarDurationSeconds } from '@/utils/loop-duration';
+import { getBarDurationSeconds, getBeatsPerBar } from '@/utils/loop-duration';
 import { logRender } from '@/utils/render-logger';
 
 interface WorkspaceScreenProps {
@@ -70,6 +73,7 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
     metronomeEnabled: DEFAULT_METRONOME_ENABLED,
   };
   const barDurationSeconds = getBarDurationSeconds(ideaTiming);
+  const beatsPerBar = getBeatsPerBar(ideaTiming);
 
   // The Layer object handed to a background MIDI operation (analysis,
   // rendering) at the moment it starts is a snapshot — `storageService`
@@ -82,6 +86,11 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
     setLayers((prev) => prev.map((existing) => (existing.id === layer.id ? layer : existing)));
   }
 
+  // Changing tempo/time signature mid-project does NOT retroactively
+  // re-quantize or re-render existing MIDI layers — deliberately deferred,
+  // see docs/05_BACKLOG.md. A Layer's rendered audio keeps reflecting
+  // whatever tempo was current when it last rendered.
+
   const recorder = useLayerRecorder(
     ideaId,
     ideaTiming,
@@ -91,6 +100,17 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
     syncLayer,
   );
   const playback = useIdeaPlayback(layers, barDurationSeconds, ideaTiming.loopLengthBars);
+
+  // One Transport instance, owned here and shared by Timeline, RecordButton,
+  // and BeatPulseGlow — see useTransportProgress and
+  // docs/07_AUDIO_ARCHITECTURE.md §15-16. Each mounting its own would risk
+  // them disagreeing about where "now" is.
+  const { progress, recordingBeat, recordingBeatPhase } = useTransportProgress({
+    phase: recorder.phase,
+    loopDurationSeconds: ideaTiming.loopLengthBars * barDurationSeconds,
+    beatDurationSeconds: barDurationSeconds / beatsPerBar,
+    getIdeaPlaybackProgress: playback.getLoopProgress,
+  });
 
   async function handleRenameLayer(layerId: string, name: string) {
     const updated = await storageService.updateLayer(layerId, { name });
@@ -120,6 +140,11 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
     if (!target) {
       return;
     }
+    // Cuts off any in-flight MIDI analysis/render immediately rather than
+    // letting it run to a doomed completion — see midi-processing-store.ts's
+    // cancel() docstring. Record → retake → delete is common enough that
+    // this matters, not just an edge case.
+    useMidiProcessingStore.getState().cancel(layerId);
     if (target.audioPath) {
       await storageService.deleteAudioFile(target.audioPath);
     }
@@ -285,16 +310,24 @@ export function WorkspaceScreen({ ideaId }: WorkspaceScreenProps) {
       </ScrollView>
 
       <ThemedView style={[styles.dock, { paddingBottom: insets.bottom + Spacing.three }]}>
+        <BeatPulseGlow
+          currentBeat={recordingBeat}
+          beatPhase={recordingBeatPhase}
+          beatsPerBar={beatsPerBar}
+        />
         <Timeline
-          phase={recorder.phase}
           idea={ideaTiming}
-          getIdeaPlaybackProgress={playback.getLoopProgress}
+          progress={progress}
+          recordingBeat={recordingBeat}
+          recordingBeatPhase={recordingBeatPhase}
         />
         <View style={styles.dockButtons}>
           <RecordButton
             phase={recorder.phase}
-            durationMillis={recorder.durationMillis}
             countInBeat={recorder.countInBeat}
+            currentBeat={recordingBeat}
+            beatPhase={recordingBeatPhase}
+            beatsPerBar={beatsPerBar}
             onPress={handleRecordButtonPress}
             disabled={playback.isPlaying}
           />
@@ -323,6 +356,7 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
   },
   dock: {
+    position: 'relative',
     paddingHorizontal: Spacing.three,
     gap: Spacing.three,
   },

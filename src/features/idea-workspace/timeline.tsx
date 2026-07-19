@@ -1,12 +1,11 @@
 import { useState } from 'react';
 import { StyleSheet, View, type LayoutChangeEvent } from 'react-native';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, type SharedValue } from 'react-native-reanimated';
 
-import { useTransportProgress } from '@/features/idea-workspace/use-transport-progress';
 import { useTheme } from '@/hooks/use-theme';
 import type { Idea } from '@/models/idea';
-import type { RecordingPhase } from '@/services/audio-service';
-import { getBarDurationSeconds, getBeatsPerBar } from '@/utils/loop-duration';
+import { beatPulseEnvelope } from '@/utils/beat-pulse-envelope';
+import { getBeatsPerBar } from '@/utils/loop-duration';
 
 const STRIP_HEIGHT = 28;
 const BAR_TICK_WIDTH = 2;
@@ -19,10 +18,11 @@ const INDICATOR_WIDTH = 2;
 const EDGE_INSET = BAR_TICK_WIDTH / 2;
 
 interface TimelineProps {
-  phase: RecordingPhase;
   idea: Pick<Idea, 'tempo' | 'timeSignature' | 'loopLengthBars'>;
-  /** Real playback position snapshot — see useIdeaPlayback.getLoopProgress. */
-  getIdeaPlaybackProgress: () => number | null;
+  /** See TransportProgressResult — one Transport instance, owned by WorkspaceScreen and shared with RecordButton/BeatPulseGlow, so all three can never disagree about where "now" is. */
+  progress: SharedValue<number>;
+  recordingBeat: SharedValue<number>;
+  recordingBeatPhase: SharedValue<number>;
 }
 
 /**
@@ -32,26 +32,26 @@ interface TimelineProps {
  * additional tasks). Never supports scrubbing, editing, or waveform display;
  * purely a timing reference.
  *
- * The indicator's position comes from useTransportProgress, which runs
- * Recording and Playback as two distinct synchronization models rather than
- * one shared clock — see that hook and docs/07_AUDIO_ARCHITECTURE.md §15-16.
- * The indicator stays parked at 0 during count-in (there's no audio yet to
- * reflect) and whenever otherwise idle.
+ * The indicator's position comes from `progress`, computed by
+ * useTransportProgress up in WorkspaceScreen (not here — RecordButton and
+ * BeatPulseGlow need the same Transport instance, so it's owned one level
+ * up and passed down rather than each mounting its own — see that hook and
+ * docs/07_AUDIO_ARCHITECTURE.md §15-16). The indicator stays parked at 0
+ * during count-in (there's no audio yet to reflect) and whenever otherwise
+ * idle.
+ *
+ * The active beat's own tick mark also pulses with the same envelope as
+ * RecordButton's digit and BeatPulseGlow (beat-pulse-envelope.ts) — the
+ * cheapest of the three layers, since it's just another consumer of the
+ * same signal, and it ties the new visual metronome back into the timeline
+ * that's already the authoritative visual reference.
  */
-export function Timeline({ phase, idea, getIdeaPlaybackProgress }: TimelineProps) {
+export function Timeline({ idea, progress, recordingBeat, recordingBeatPhase }: TimelineProps) {
   const theme = useTheme();
   const [width, setWidth] = useState(0);
 
   const beatsPerBar = getBeatsPerBar(idea);
-  const barDurationSeconds = getBarDurationSeconds(idea);
-  const loopDurationSeconds = idea.loopLengthBars * barDurationSeconds;
   const totalBeats = beatsPerBar * idea.loopLengthBars;
-
-  const progress = useTransportProgress({
-    phase,
-    loopDurationSeconds,
-    getIdeaPlaybackProgress,
-  });
 
   const drawableWidth = Math.max(0, width - EDGE_INSET * 2);
 
@@ -62,6 +62,30 @@ export function Timeline({ phase, idea, getIdeaPlaybackProgress }: TimelineProps
   const playedStyle = useAnimatedStyle(() => ({
     width: EDGE_INSET + progress.value * drawableWidth,
   }));
+
+  // A single overlay tracking whichever tick is currently active, rather
+  // than one useAnimatedStyle per tick — hook count must stay identical
+  // across renders, but totalBeats (and so the number of ticks) changes
+  // whenever the Idea's loop length does.
+  const activeTickStyle = useAnimatedStyle(() => {
+    if (totalBeats <= 0 || recordingBeat.value < 0) {
+      return { opacity: 0 };
+    }
+    const tickIndex = recordingBeat.value % totalBeats;
+    const isAccent = tickIndex % beatsPerBar === 0;
+    const baseWidth = isAccent ? BAR_TICK_WIDTH : BEAT_TICK_WIDTH;
+    const intensity = beatPulseEnvelope(recordingBeatPhase.value, isAccent);
+    // Very slight — centered on the tick's own position so it grows evenly
+    // outward rather than drifting to one side as it widens.
+    const width = baseWidth + intensity * 1;
+    const center = EDGE_INSET + (tickIndex / totalBeats) * drawableWidth;
+    return {
+      opacity: intensity,
+      left: center - width / 2,
+      width,
+      transform: [{ scaleY: 1 + intensity * 0.9 }],
+    };
+  });
 
   function handleLayout(event: LayoutChangeEvent) {
     setWidth(event.nativeEvent.layout.width);
@@ -95,6 +119,12 @@ export function Timeline({ phase, idea, getIdeaPlaybackProgress }: TimelineProps
             />
           );
         })}
+      {width > 0 && (
+        <Animated.View
+          pointerEvents="none"
+          style={[styles.tick, activeTickStyle, { backgroundColor: theme.accent }]}
+        />
+      )}
       {width > 0 && (
         <Animated.View
           style={[styles.indicator, indicatorStyle, { backgroundColor: theme.accent }]}

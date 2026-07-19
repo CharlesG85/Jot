@@ -353,30 +353,92 @@ function segmentIntoRegions(
  * hysteresis already guarantees every region it emits spans at least
  * `MIN_NOTE_DURATION_MS`, but snapping to the beat grid and the overlap
  * trim above can still shrink a note's *quantized* duration below that
- * floor (e.g. a short note squeezed between two grid points at a fast
- * tempo). Anything that ends up too short here is merged into whichever
- * *adjacent* neighbor is closer in pitch — the more likely candidate for
- * "the real note this fragment actually belongs to" — extending that
- * neighbor's span to cover it.
+ * floor purely as an artifact of grid-snapping/overlap-trimming, not
+ * because it was ever a short raw note — mergeShortRawNotes (below) already
+ * filters those, on their true un-inflated duration, before grid-snapping
+ * ever runs. By the time a note reaches this function, it's backed by a raw
+ * detection that was already long enough to be a real, intended note.
  *
- * "Adjacent" is deliberately checked (same tolerance as the coalescing pass
- * above) rather than assumed: a short note can legitimately sit between two
- * real notes separated by an actual rest, and blindly extending a neighbor
- * to cover a short note's span would silently swallow that rest. A short
- * note with no adjacent neighbor at all — isolated by real gaps on both
- * sides, or the only note in the whole recording — is left as-is rather
- * than discarded: a brief but genuine, isolated utterance losing its only
- * note to a duration floor is a worse outcome than showing a short one.
+ * That's exactly why this no longer *merges* a too-short survivor into a
+ * neighbor the way an earlier version of this function did — merging
+ * extended whichever neighbor was pitch-closer to cover the removed note's
+ * timeslot, which sounds exactly like that neighbor's own pitch "jumping"
+ * into a slot it was never actually performed in. Worse, *which* note ends
+ * up squeezed by trimOverlaps (and therefore which neighbor "wins") depends
+ * on tempo and the chosen Snap To grid — both just change how a fixed beat
+ * grid maps onto the same real-time raw note boundaries — so the exact same
+ * recording could lose a different note, or gain an apparent pitch shift,
+ * purely from changing tempo, with nothing about the actual performance
+ * having changed at all.
+ *
+ * Only a note trimmed all the way down to essentially zero duration is
+ * handled here — and only by removing it outright, never by extending a
+ * neighbor into its place. A short-but-still-audible survivor is left
+ * exactly as it is: the renderer's envelope already scales gracefully to
+ * arbitrarily short durations without clicking (see
+ * instrument-renderer.ts), so there's no remaining reason to eliminate a
+ * real, if brief, note just for being short.
  */
-function enforceMinimumNoteDuration(
-  notes: MidiNote[],
-  minDurationBeats: number,
-  gridBeats: number,
-): MidiNote[] {
+function removeDegenerateNotes(notes: MidiNote[]): MidiNote[] {
+  return notes.filter((note) => note.durationBeats > 1e-9);
+}
+
+/**
+ * Trims each note so it never extends past the start of the next one — the
+ * hard invariant behind monophonic output. Deliberately has no minimum-
+ * duration floor of its own: a note trimmed down to near-zero or exactly
+ * zero duration here is precisely what removeDegenerateNotes (above) exists
+ * to clean up. A floor here (e.g. "never trim below one grid step") would
+ * silently reintroduce the exact overlap this function exists to prevent,
+ * whenever two notes land closer together than one grid step apart — which
+ * quantization can easily produce, especially at coarser grids, and is
+ * exactly what caused simultaneous overlapping notes (monophonic output
+ * playing two notes at once) before this function existed in its current
+ * form.
+ *
+ * Applied twice in quantizeNoteTiming: once right after grid-snapping
+ * (before the coalescing pass below, which assumes non-overlapping input to
+ * reason about "adjacent" correctly), and once more at the very end, as an
+ * unconditional guarantee regardless of what coalescing does — monophonic
+ * output shouldn't depend on correctly tracing through every merge case, it
+ * should be enforced directly.
+ */
+function trimOverlaps(notes: { startBeat: number; durationBeats: number }[]): void {
+  for (let i = 0; i < notes.length - 1; i++) {
+    const current = notes[i];
+    const next = notes[i + 1];
+    const currentEnd = current.startBeat + current.durationBeats;
+    if (currentEnd > next.startBeat) {
+      current.durationBeats = next.startBeat - current.startBeat;
+    }
+  }
+}
+
+/**
+ * Merges (or, if isolated between real gaps, leaves alone) raw notes
+ * shorter than `minDurationSeconds` — operating on real, un-quantized
+ * seconds, before grid-snapping ever touches them.
+ *
+ * This has to run *before* grid-snapping, not only after it (see
+ * removeDegenerateNotes above): quantizeNoteTiming's grid-snapping step
+ * unconditionally floors every note's quantized duration to at least one
+ * full grid step (`Math.max(startBeat + gridBeats, ...)`), so a genuine
+ * transient — the settling-in glide at a hummed note's onset, or the
+ * trailing-off pitch drift as a note ends, that segmentIntoRegions' own
+ * frame-based hysteresis is supposed to prevent from becoming its own note
+ * but doesn't always fully catch — gets inflated from a few milliseconds up
+ * to a full grid step (multiple seconds, at a coarse Snap To setting)
+ * before any post-quantization check could ever see it. By then its
+ * duration comfortably clears the 100ms threshold, and the artifact
+ * survives as a real, audible phantom note. Filtering on the note's true,
+ * un-inflated duration first is what actually catches it, regardless of
+ * what grid it's about to be quantized to.
+ */
+function mergeShortRawNotes(notes: RawMidiNote[], minDurationSeconds: number): RawMidiNote[] {
   const result = notes.map((note) => ({ ...note }));
 
   for (let i = 0; i < result.length; i++) {
-    if (result[i].durationBeats >= minDurationBeats) {
+    if (result[i].durationSeconds >= minDurationSeconds) {
       continue;
     }
     const short = result[i];
@@ -384,9 +446,11 @@ function enforceMinimumNoteDuration(
     const next = result[i + 1];
 
     const prevAdjacent =
-      prev !== undefined && short.startBeat <= prev.startBeat + prev.durationBeats + gridBeats;
+      prev !== undefined &&
+      short.startSeconds <= prev.startSeconds + prev.durationSeconds + minDurationSeconds;
     const nextAdjacent =
-      next !== undefined && next.startBeat <= short.startBeat + short.durationBeats + gridBeats;
+      next !== undefined &&
+      next.startSeconds <= short.startSeconds + short.durationSeconds + minDurationSeconds;
 
     if (!prevAdjacent && !nextAdjacent) {
       continue;
@@ -397,15 +461,12 @@ function enforceMinimumNoteDuration(
       (!nextAdjacent || Math.abs(prev.pitch - short.pitch) <= Math.abs(next.pitch - short.pitch));
 
     if (mergeIntoPrev) {
-      prev.durationBeats = short.startBeat + short.durationBeats - prev.startBeat;
+      prev.durationSeconds = short.startSeconds + short.durationSeconds - prev.startSeconds;
     } else {
-      next.durationBeats = next.startBeat + next.durationBeats - short.startBeat;
-      next.startBeat = short.startBeat;
+      next.durationSeconds = next.startSeconds + next.durationSeconds - short.startSeconds;
+      next.startSeconds = short.startSeconds;
     }
     result.splice(i, 1);
-    // Re-examine the merged-into neighbor (now at this same index, or the
-    // previous one) in case the merge itself needs re-checking — and to
-    // correctly continue the scan after the splice shifted every later index.
     i -= 1;
   }
 
@@ -423,11 +484,12 @@ function enforceMinimumNoteDuration(
  * different `gridBeats`.
  */
 export function quantizeNoteTiming(
-  notes: RawMidiNote[],
+  rawNotes: RawMidiNote[],
   tempo: number,
   gridBeats: number,
 ): MidiNote[] {
   const secondsPerBeat = 60 / tempo;
+  const notes = mergeShortRawNotes(rawNotes, MIN_NOTE_DURATION_MS / 1000);
 
   const quantized = notes
     .map((note) => {
@@ -451,14 +513,7 @@ export function quantizeNoteTiming(
   // trim the earlier note back to where the next one now starts, rather
   // than leaving what should be sequential legato notes stacked on top of
   // each other.
-  for (let i = 0; i < quantized.length - 1; i++) {
-    const currentNote = quantized[i];
-    const nextNote = quantized[i + 1];
-    const currentEnd = currentNote.startBeat + currentNote.durationBeats;
-    if (currentEnd > nextNote.startBeat) {
-      currentNote.durationBeats = Math.max(gridBeats, nextNote.startBeat - currentNote.startBeat);
-    }
-  }
+  trimOverlaps(quantized);
 
   // A brief, ambiguous stretch (e.g. an analysis window straddling a very
   // short glitch) can occasionally still produce more than one region for
@@ -482,8 +537,17 @@ export function quantizeNoteTiming(
     }
   }
 
-  const minDurationBeats = MIN_NOTE_DURATION_MS / 1000 / secondsPerBeat;
-  const result = enforceMinimumNoteDuration(coalesced, minDurationBeats, gridBeats);
+  let result = removeDegenerateNotes(coalesced);
+
+  // Unconditional final guarantee — see trimOverlaps' own docstring for why
+  // this runs a second time here rather than trusting coalescing above to
+  // have preserved the no-overlap invariant on its own. This can itself
+  // shrink a note down to exactly 0 — running removeDegenerateNotes again
+  // immediately after is what removes any such note instead of leaving an
+  // unplayable zero-duration note behind (which renderMidiToPcm silently
+  // skips — the note just never sounds).
+  trimOverlaps(result);
+  result = removeDegenerateNotes(result);
 
   console.log('[midi-debug] stage 3: quantization', {
     gridBeats,

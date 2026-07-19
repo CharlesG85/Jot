@@ -5,6 +5,7 @@ import type { Idea } from '@/models/idea';
 import type { Layer } from '@/models/layer';
 import type { RawMidiData, RawMidiNote } from '@/models/midi';
 import { storageService } from '@/services/sqlite-storage-service';
+import { LayerNotFoundError } from '@/services/storage-service';
 import { logAudioLifecycle } from '@/utils/audio-lifecycle-logger';
 import { detectNotesFromPcm, quantizeNoteTiming } from '@/utils/pitch-to-midi';
 import { quantizeGridToBeats } from '@/utils/quantize-grid';
@@ -17,6 +18,14 @@ const CAPTURE_TIMEOUT_MS = 60_000;
 interface PcmCapture {
   samples: Float32Array;
   sampleRate: number;
+}
+
+/** Thrown when capturePcmSamples is cut short by its AbortSignal — see convertLayerToMidi. */
+class AnalysisAbortedError extends Error {
+  constructor() {
+    super('MIDI analysis aborted');
+    this.name = 'AnalysisAbortedError';
+  }
 }
 
 /**
@@ -39,9 +48,20 @@ interface PcmCapture {
  * reports 0), so buffers can't be ordered by it — this relies on the
  * `audioSampleUpdate` events arriving in playback order instead, which
  * holds for straight-through playback with no seeking.
+ *
+ * Takes as long as the recording's own duration to complete (see above) —
+ * long enough that record → retake → delete (a common workflow) would
+ * otherwise waste real seconds of playback on a Layer that's already gone.
+ * `signal` lets convertLayerToMidi cut this off the moment that happens,
+ * rather than letting it run to a doomed completion.
  */
-function capturePcmSamples(audioPath: string): Promise<PcmCapture> {
+function capturePcmSamples(audioPath: string, signal: AbortSignal): Promise<PcmCapture> {
   return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new AnalysisAbortedError());
+      return;
+    }
+
     const player = createAudioPlayer(audioPath);
     logAudioLifecycle('player', 'create', player.id, 'midi-analysis');
     const chunks: Float32Array[] = [];
@@ -52,8 +72,14 @@ function capturePcmSamples(audioPath: string): Promise<PcmCapture> {
       fail(new Error('MIDI analysis playback timed out'));
     }, CAPTURE_TIMEOUT_MS);
 
+    function handleAbort() {
+      fail(new AnalysisAbortedError());
+    }
+    signal.addEventListener('abort', handleAbort);
+
     function cleanup() {
       clearTimeout(timeoutId);
+      signal.removeEventListener('abort', handleAbort);
       sampleSubscription.remove();
       statusSubscription.remove();
       logAudioLifecycle('player', 'destroy', player.id, 'midi-analysis');
@@ -162,9 +188,9 @@ export async function convertLayerToMidi(
     return;
   }
 
-  useMidiProcessingStore.getState().start(layer.id, 'analyzing');
+  const signal = useMidiProcessingStore.getState().start(layer.id, 'analyzing');
   try {
-    const { samples, sampleRate } = await capturePcmSamples(layer.audioPath);
+    const { samples, sampleRate } = await capturePcmSamples(layer.audioPath, signal);
     if (samples.length === 0 || sampleRate <= 0) {
       console.warn('[midi-analysis] captured no usable samples', { layerId: layer.id });
       return;
@@ -186,7 +212,19 @@ export async function convertLayerToMidi(
       notes,
     });
   } catch (error) {
-    console.error('[midi-analysis] failed for layer', layer.id, error);
+    // Two ways a deleted Layer shows up here: cancelled mid-capture (the
+    // common case — handleDeleteLayer aborts the signal immediately, so
+    // this fires right away instead of after the full capture duration), or
+    // the rarer residual race where deletion lands in the short window
+    // between capture finishing and this persisting — still not a real
+    // failure, just a slower path to the same "nothing left to update" outcome.
+    if (error instanceof AnalysisAbortedError) {
+      console.log('[midi-analysis] cancelled — layer deleted', layer.id);
+    } else if (error instanceof LayerNotFoundError) {
+      console.log('[midi-analysis] layer deleted before analysis finished', layer.id);
+    } else {
+      console.error('[midi-analysis] failed for layer', layer.id, error);
+    }
   } finally {
     useMidiProcessingStore.getState().finish(layer.id);
   }
@@ -205,13 +243,34 @@ export async function requantizeLayerNotes(
   idea: Pick<Idea, 'tempo' | 'timeSignature'>,
 ): Promise<Layer> {
   if (!layer.rawMidiData) {
+    console.log('[midi-debug] requantizeLayerNotes: no rawMidiData, nothing to re-quantize', {
+      layerId: layer.id,
+      quantization: layer.quantization,
+    });
     return layer;
   }
 
   const rawMidiData: RawMidiData = JSON.parse(layer.rawMidiData);
   const rawNotes: RawMidiNote[] = rawMidiData.notes;
   const gridBeats = quantizeGridToBeats(layer.quantization, idea);
+  console.log('[midi-debug] requantizeLayerNotes: running', {
+    layerId: layer.id,
+    quantization: layer.quantization,
+    gridBeats,
+    rawNoteCount: rawNotes.length,
+  });
   const notes = quantizeNoteTiming(rawNotes, idea.tempo, gridBeats);
 
-  return storageService.updateLayer(layer.id, { midiData: JSON.stringify({ notes }) });
+  try {
+    return await storageService.updateLayer(layer.id, { midiData: JSON.stringify({ notes }) });
+  } catch (error) {
+    // Same benign race as convertLayerToMidi's catch — the Layer was
+    // deleted before this (cheap, but still async) re-quantization landed.
+    // Nothing left to persist to; the caller gets the Layer back unchanged.
+    if (error instanceof LayerNotFoundError) {
+      console.log('[midi-analysis] layer deleted before re-quantization finished', layer.id);
+      return layer;
+    }
+    throw error;
+  }
 }

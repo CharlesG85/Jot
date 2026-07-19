@@ -14,7 +14,7 @@ import type { TimeSignature } from '@/models/idea';
 const MIN_TEMPO = 40;
 const MAX_TEMPO = 240;
 const TIME_SIGNATURES: TimeSignature[] = ['4/4', '3/4'];
-const LOOP_LENGTH_OPTIONS = [1, 2, 4, 8];
+const LOOP_LENGTH_OPTIONS = [2, 4, 8];
 
 interface SettingsSheetProps {
   ideaId: string;

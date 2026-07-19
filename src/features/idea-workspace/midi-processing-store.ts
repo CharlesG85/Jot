@@ -11,29 +11,60 @@ export type LayerProcessingPhase = 'analyzing' | 'rendering';
 
 interface MidiProcessingState {
   phaseByLayerId: Map<string, LayerProcessingPhase>;
-  start: (layerId: string, phase: LayerProcessingPhase) => void;
+  abortControllerByLayerId: Map<string, AbortController>;
+  /**
+   * Marks layerId as entering `phase` and returns an AbortSignal the
+   * operation should watch — see cancel(). Record → retake → delete is a
+   * common workflow (see cancel()'s own docstring), so every background
+   * operation this store tracks is expected to be cancellable, not just
+   * observable.
+   */
+  start: (layerId: string, phase: LayerProcessingPhase) => AbortSignal;
   finish: (layerId: string) => void;
+  /**
+   * Aborts whatever background operation is currently running for
+   * layerId — a no-op if nothing is in flight. Called right before deleting
+   * a Layer: MIDI analysis alone can take as long as the recording's own
+   * duration (it works by replaying the audio), and record → retake →
+   * delete is a common enough workflow that letting an already-doomed
+   * analysis run to completion for a Layer that's about to stop existing
+   * would waste real, repeated seconds of work rather than just an
+   * occasional edge case.
+   */
+  cancel: (layerId: string) => void;
 }
 
-export const useMidiProcessingStore = create<MidiProcessingState>((set) => ({
+export const useMidiProcessingStore = create<MidiProcessingState>((set, get) => ({
   phaseByLayerId: new Map(),
+  abortControllerByLayerId: new Map(),
 
-  start: (layerId, phase) =>
+  start: (layerId, phase) => {
+    const controller = new AbortController();
     set((state) => {
-      const next = new Map(state.phaseByLayerId);
-      next.set(layerId, phase);
-      return { phaseByLayerId: next };
-    }),
+      const nextPhase = new Map(state.phaseByLayerId);
+      nextPhase.set(layerId, phase);
+      const nextControllers = new Map(state.abortControllerByLayerId);
+      nextControllers.set(layerId, controller);
+      return { phaseByLayerId: nextPhase, abortControllerByLayerId: nextControllers };
+    });
+    return controller.signal;
+  },
 
   finish: (layerId) =>
     set((state) => {
-      if (!state.phaseByLayerId.has(layerId)) {
+      if (!state.phaseByLayerId.has(layerId) && !state.abortControllerByLayerId.has(layerId)) {
         return state;
       }
-      const next = new Map(state.phaseByLayerId);
-      next.delete(layerId);
-      return { phaseByLayerId: next };
+      const nextPhase = new Map(state.phaseByLayerId);
+      nextPhase.delete(layerId);
+      const nextControllers = new Map(state.abortControllerByLayerId);
+      nextControllers.delete(layerId);
+      return { phaseByLayerId: nextPhase, abortControllerByLayerId: nextControllers };
     }),
+
+  cancel: (layerId) => {
+    get().abortControllerByLayerId.get(layerId)?.abort();
+  },
 }));
 
 /** Whether background MIDI analysis or instrument rendering is currently running for this Layer, or null if idle. */

@@ -50,7 +50,6 @@ async function waitForFileToStabilize(uri: string): Promise<void> {
 
 interface UseLayerRecorderResult {
   phase: RecordingPhase;
-  durationMillis: number;
   /** 1-4 while phase is 'counting-in', otherwise null. */
   countInBeat: number | null;
   start: () => Promise<void>;
@@ -153,7 +152,16 @@ export function useLayerRecorder(
     // not after, for the same reason as that value would have been: reading
     // any time reference back out is unreliable once the recorder has
     // actually stopped.
-    const durationSeconds = (performance.now() - recordingStartTimeRef.current) / 1000;
+    const rawDurationSeconds = (performance.now() - recordingStartTimeRef.current) / 1000;
+    // The auto-stop below only fires on a 500ms poll (recorderState.durationMillis),
+    // so real elapsed time can have crept slightly past the Idea's own loop
+    // boundary by the time it's caught — but recording is documented to
+    // always end exactly at that boundary (docs/07_AUDIO_ARCHITECTURE.md
+    // §3, §6), so any such overshoot is poll lag, not a longer performance.
+    // Clamping here is what keeps computeLoopLengthBars from rounding up to
+    // the *next* allowed tier (e.g. a 4-bar Idea producing an 8-bar Layer)
+    // purely because of a few hundred milliseconds of polling slop.
+    const durationSeconds = Math.min(rawDurationSeconds, loopDurationSeconds);
     try {
       logAudioLifecycle('recorder', 'stop', recorder.id, 'layer-recorder');
       await recorder.stop();
@@ -242,7 +250,6 @@ export function useLayerRecorder(
 
   return {
     phase,
-    durationMillis: recorderState.durationMillis,
     countInBeat: countIn.currentBeat,
     start,
     stop,

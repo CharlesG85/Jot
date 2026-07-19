@@ -10,7 +10,7 @@ import {
 } from '@/models/idea';
 import type { InstrumentId } from '@/models/instrument';
 import type { EffectsIntensity, Layer, QuantizeGrid } from '@/models/layer';
-import type { StorageService } from '@/services/storage-service';
+import { LayerNotFoundError, type StorageService } from '@/services/storage-service';
 import { getDatabase } from '@/storage/database';
 import { recordingsDirectory, rendersDirectory } from '@/storage/file-system';
 import { generateId } from '@/utils/id';
@@ -247,7 +247,7 @@ class SqliteStorageService implements StorageService {
     const db = await getDatabase();
     const existing = await db.getFirstAsync<LayerRow>('SELECT * FROM layers WHERE id = ?', id);
     if (!existing) {
-      throw new Error(`Layer not found: ${id}`);
+      throw new LayerNotFoundError(id);
     }
     const updated: Layer = { ...mapLayer(existing), ...changes, updatedAt: Date.now() };
     await db.runAsync(

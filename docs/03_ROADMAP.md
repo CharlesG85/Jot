@@ -250,7 +250,7 @@ Basic humming produces usable MIDI.
 
 ---
 
-## Stage 9 — Instrument Engine
+## Stage 9 — Offline Rendering Engine
 
 ### Goal
 
@@ -288,6 +288,179 @@ A Layer with MIDI enabled plays back as rendered instrument audio — indistingu
 - Design the expanded Layer view to accommodate future controls without resembling a DAW.
 
 ---
+
+## Stage 9.5a — Sample-Based Instrument Library
+
+### Goal
+
+Replace procedural instrument synthesis with high-quality sample-based instruments rendered offline via a lightweight SoundFont or equivalent sample library.
+
+### Tasks
+
+- Integrate a lightweight, permissively licensed sample-based instrument library (e.g. SoundFont).
+- Replace procedural oscillators/envelopes with sample playback during offline rendering.
+- Support offline rendering only (never real-time synthesis).
+- Maintain rendered-audio caching.
+- Invalidate and regenerate cached renders whenever:
+>> MIDI changes
+>> Instrument changes
+- xpand the instrument library to include:
+>> Piano
+>> Electric Piano
+>> Guitar
+>> Bass
+>> Strings
+>> Synth Lead
+>> Pads
+- Keep the renderer generic so additional instruments can be added without architectural changes.
+- Continue rendering instrument output into a standard audio file used by the playback engine.
+
+### Stage 9.5A — SoundFont Validation (complete)
+
+A dedicated first step, proving the library/asset choice before building the
+renderer itself. Library evaluated and chosen: `soundfont2` (Mrtenz, MIT,
+TypeScript, zero native dependencies — pure JS, so identical on iOS and
+Android). Rejected alternatives: real-time RN SoundFont players (no offline
+rendering support), a native `AVAudioUnitSampler`-based renderer (iOS-only,
+no existing Expo module, contradicts the project's no-native-modules
+architecture), Web-Audio-API-based players (no Web Audio in RN/Hermes).
+
+Bundled asset: `assets/instruments/upright-piano-kw.sf2` (Upright Piano KW,
+FreePats project, CC0 public domain, no attribution required), bundled via
+the same `metro.config.js` `assetExts` + `expo-asset` mechanism already
+proven for the CREPE `.onnx` model. Loader: `src/utils/soundfont-loader.ts`.
+
+Verified directly against the installed package's actual source/types (not
+assumed): `getKeyData(midiKey, bank, preset)` returns a `Key` exposing the
+matched `Sample` (`Int16Array` PCM, sample rate, root key/`originalPitch`,
+pitch correction, loop start/end — pre-adjusted to be relative to that
+sample's own sliced data array) plus zone-level `generators`
+(`SampleModes`, `CoarseTune`/`FineTune`, `OverridingRootKey`,
+`InitialAttenuation`, the volume-envelope generators) and `preset`/
+`instrument` mapping. All metadata required for a renderer is present.
+Parsed the bundled file for MIDI 60 (middle C) and exported the raw,
+unmodified sample as a WAV file to confirm the parser produces real,
+non-silent, well-formed audio (44.1kHz, ~8s, loop points valid).
+
+Not yet built: the renderer itself (pitch-shifting/resampling, looping,
+envelope, mixing into the existing PCM pipeline) and the
+`renderMode`/renderer-dispatch mechanism on `InstrumentDefinition`.
+
+### Renderer (complete for Piano)
+
+`InstrumentDefinition` is now a discriminated union on `renderMode`
+(`'synth'` | `'soundfont'`) — `ensureLayerRenderCached` dispatches on this
+one field, so a future sampled instrument needs only its own
+`SoundFontInstrumentDefinition`, never a renderer-selection change.
+`src/utils/soundfont-renderer.ts` implements sample-based rendering:
+per-note pitch-shift (root key + coarse/fine tune generators + sample pitch
+correction, linear-interpolation resampling — not cubic/sinc, an explicitly
+deferred optimization), loop-point playback for sustained notes, a simple
+fixed attack/release fade (not the SF2 spec's full volume-envelope
+generators — deferred), additive mixing for correct polyphony/chords, and
+the same `softClip` safety net as the synth renderer. `PIANO_DEFINITION`
+now points at this renderer instead of procedural synthesis.
+
+Verified incrementally (single note → chord → melody → a fuller 8-note
+layer with overlapping/sustained/short notes), including autocorrelation
+pitch-accuracy checks against each note's expected frequency (all within
+~5 cents of the earlier-observed worst case), confirmed additive mixing for
+chords, confirmed loop points keep a sustained note sounding well past the
+raw sample's own natural length, and confirmed silence both before/after
+notes and in the deliberate trailing tail.
+
+Not yet done: instrument switching/UI, additional sampled instruments,
+resampling-quality or performance optimization — all explicitly deferred
+per this stage's own incremental scope.
+
+### Bundled instrument library reconsidered: GeneralUser GS
+
+The initial 57MB single-instrument piano SoundFont (Upright Piano KW) was
+replaced with **GeneralUser GS** (~30MB), a General MIDI soundfont covering
+all 128 GM instruments in one file — chosen deliberately over maximizing
+one instrument's realism, since this app's goal is inspiring, listenable
+recordings, not professional sample-library fidelity. Verified directly
+(not assumed): every instrument named in this stage's own instrument list
+(Piano, Electric Piano, Guitar, Bass, Strings, Synth Lead, Pad) is present
+as a real, distinctly-sampled preset at its standard GM program number.
+License: explicit unrestricted commercial use, no attribution required, 25
+years of real-world commercial use with no known claims (full text:
+`assets/instruments/generaluser-gs-LICENSE.txt`). Considered and rejected:
+full FluidR3 GM (MIT, but 144MB — worse on the size goal), FluidR3Mono
+(12.6MB, but SF3/OGG-compressed — `soundfont2` only reads raw PCM, would
+need a new decoder dependency).
+
+One bundled file now backs every current and future sample-based
+instrument — adding one means a new `SoundFontInstrumentDefinition`
+pointing at a different bank/preset in the same file, not a new asset.
+
+Renderer re-verified against the new file end-to-end (single note → chord
+→ melody → sustained note). One investigation worth recording: initial
+pitch checks showed ~15-17 cents of apparent sharpness, tighter than the
+first SoundFont's ~2-5 cents. Traced directly (not assumed) to the raw,
+completely unprocessed sample itself already measuring ~7 cents off pure
+pitch, plus this preset's own +4 cent `FineTune` generator — isolating
+every renderer stage (resampling, fade, envelope, gain) individually
+confirmed zero additional error contributed by the rendering code itself.
+This is the source data's own natural tuning, not a rendering bug — normal
+for real acoustic samples, inaudible in musical context.
+
+### Full instrument roster live; velocity-layer selection bug fixed
+
+All 7 roadmap instruments (Piano, Electric Piano, Guitar, Bass, Strings,
+Synth, Pad) now render sample-based from GeneralUser GS, replacing the
+hand-crafted procedural definitions for Electric Piano/Synth/Pad.
+`InstrumentSelector` needed no changes — it already iterated
+`ALL_INSTRUMENTS` generically. `SynthInstrumentDefinition` and
+`instrument-renderer.ts`'s procedural renderer are kept as working,
+tested infrastructure for a possible future instrument, even though
+nothing currently uses them.
+
+Fixed along the way: `soundFont2.getKeyData()` only filters zones by key
+range — it has no velocity parameter at all, and its own docstring admits
+as much. For a velocity-layered instrument (soft/loud samples covering the
+same key range via a `VelRange` generator, like this piano), that meant it
+silently returned whichever velocity-layer zone happened to be listed
+first in the SF2 file for a given key — a property of file ordering, not
+performance. Audibly this presented as different notes randomly switching
+between a soft and loud sample character. Replaced with
+`soundfont-renderer.ts`'s own `findKeyData`, which filters by both key
+range and velocity range against one fixed "medium" velocity
+(`FIXED_VELOCITY = 90`) for every note — real velocity-sensitive playback
+(reading each note's own recorded velocity) is deferred, not implemented
+partially. Verified: the same melody rendered at velocity 20 vs. 127 now
+produces byte-identical output.
+
+### Deliverable
+
+MIDI Layers render into realistic sampled instruments that play back as ordinary audio files. Instrument switching simply regenerates the rendered audio in the background while leaving the playback engine completely unaware of the rendering process.
+
+
+## Stage 9.5b — Offline Audio Effects
+
+### Goal
+
+Apply audio effects during offline rendering so playback remains simple audio-file playback.
+
+### Tasks
+- Extend the offline rendering pipeline to support audio effects.
+- Implement:
+>> Reverb
+>> Delay
+>> Distortion
+- Apply effects only during offline rendering (never during playback).
+- Re-render automatically whenever:
+>> Effect type changes
+>> Effect intensity changes
+- Preserve rendered-audio caching.
+- Keep the original recording and rendered instrument audio unchanged until a new render completes.
+- Continue allowing effect controls from the expanded Layer UI.
+- Design the rendering pipeline so additional effects (EQ, compression, chorus, flanger, etc.) can be added later without modifying the playback engine.
+
+### Deliverable
+
+Users can apply effects to MIDI-rendered instruments through simple controls. Effects are baked into the rendered audio, and playback continues to consist solely of synchronized audio-file playback with no real-time DSP.
+
 
 ## Stage 10 — Export
 

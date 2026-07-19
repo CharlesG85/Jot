@@ -2,6 +2,21 @@ import type { Idea } from '@/models/idea';
 import type { Layer } from '@/models/layer';
 
 /**
+ * Thrown by updateLayer when the target row no longer exists — most
+ * commonly because the user deleted the Layer while a background operation
+ * (MIDI analysis, instrument rendering, re-quantization) was still in
+ * flight against it. Callers running in the background should catch this
+ * specifically and treat it as an expected, benign outcome — there's
+ * nothing left to update — rather than a real failure.
+ */
+export class LayerNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Layer not found: ${id}`);
+    this.name = 'LayerNotFoundError';
+  }
+}
+
+/**
  * The only interface UI/hooks should use to persist Ideas, Layers, and
  * recordings. Concrete implementation is backed by SQLite + the file
  * system (see src/storage) but callers must never depend on that directly.
@@ -21,6 +36,7 @@ export interface StorageService {
 
   listLayers(ideaId: string): Promise<Layer[]>;
   createLayer(ideaId: string, input: Pick<Layer, 'name'>): Promise<Layer>;
+  /** @throws LayerNotFoundError if `id` no longer exists (e.g. deleted while a background operation was in flight). */
   updateLayer(
     id: string,
     changes: Partial<Omit<Layer, 'id' | 'ideaId' | 'createdAt'>>,
